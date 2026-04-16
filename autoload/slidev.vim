@@ -2,7 +2,7 @@ vim9script
 
 # ── Detection ─────────────────────────────────────────────────────────────────
 
-export def slidev#Detect()
+export def Detect()
     var basename = expand('%:t')->tolower()
     if index(g:slidev_ignored_names, basename) >= 0
         return
@@ -14,7 +14,7 @@ export def slidev#Detect()
         return
     endif
     if strictness == 1
-        slidev#Setup()
+        Setup()
         return
     endif
 
@@ -23,7 +23,7 @@ export def slidev#Detect()
         return
     endif
     if strictness == 2
-        slidev#Setup()
+        Setup()
         return
     endif
 
@@ -41,7 +41,7 @@ export def slidev#Detect()
         return
     endif
     if strictness == 3
-        slidev#Setup()
+        Setup()
         return
     endif
 
@@ -92,12 +92,12 @@ export def slidev#Detect()
         return
     endif
 
-    slidev#Setup()
+    Setup()
 enddef
 
 # ── Slide-line index ──────────────────────────────────────────────────────────
 
-export def slidev#GetSlideLines(): list<number>
+export def GetSlideLines(): list<number>
     var slides: list<number> = []
     var total = line('$')
     var in_frontmatter = false
@@ -132,9 +132,9 @@ def EnsurePropType()
     endif
 enddef
 
-export def slidev#UpdateGhostText()
+export def UpdateGhostText()
     var buf = bufnr('%')
-    var slides = slidev#GetSlideLines()
+    var slides = GetSlideLines()
     var total = len(slides)
 
     prop_remove({type: PROP_TYPE, bufnr: buf, all: true}, 1, line('$'))
@@ -151,8 +151,8 @@ enddef
 
 # ── Navigation ────────────────────────────────────────────────────────────────
 
-export def slidev#GoForward(count: number)
-    var slides = slidev#GetSlideLines()
+export def GoForward(count: number)
+    var slides = GetSlideLines()
     var cur = line('.')
     var ahead = slides->filter((_, v) => v > cur)
     if empty(ahead)
@@ -162,8 +162,8 @@ export def slidev#GoForward(count: number)
     normal! zz
 enddef
 
-export def slidev#GoBackward(count: number)
-    var slides = slidev#GetSlideLines()
+export def GoBackward(count: number)
+    var slides = GetSlideLines()
     var cur = line('.')
     var behind = slides->filter((_, v) => v < cur)
     if empty(behind)
@@ -173,8 +173,8 @@ export def slidev#GoBackward(count: number)
     normal! zz
 enddef
 
-export def slidev#GoToSlide(num: number)
-    var slides = slidev#GetSlideLines()
+export def GoToSlide(num: number)
+    var slides = GetSlideLines()
     var total = len(slides)
     if num < 1 || num > total
         echo $'SlidevGoToSlideNum: slide {num} not found (presentation has {total} slides)'
@@ -186,8 +186,8 @@ enddef
 
 # ── Slide editing ─────────────────────────────────────────────────────────────
 
-export def slidev#AddSlide()
-    var slides = slidev#GetSlideLines()
+export def AddSlide()
+    var slides = GetSlideLines()
     var cur = line('.')
     var next_slide = 0
     for lnum in slides
@@ -200,11 +200,11 @@ export def slidev#AddSlide()
     append(insert_at, ['', '---', ''])
     cursor(insert_at + 2, 1)
     normal! zz
-    slidev#UpdateGhostText()
+    UpdateGhostText()
 enddef
 
-export def slidev#DeleteSlide()
-    var slides = slidev#GetSlideLines()
+export def DeleteSlide()
+    var slides = GetSlideLines()
     if empty(slides)
         return
     endif
@@ -227,10 +227,10 @@ export def slidev#DeleteSlide()
         endif
     endfor
     deletebufline('%', slide_start, slide_end)
-    slidev#UpdateGhostText()
+    UpdateGhostText()
 enddef
 
-export def slidev#RunDev()
+export def RunDev()
     if !executable('pnpm')
         echohl WarningMsg
         echo 'SlidevRunDev: pnpm not found in PATH'
@@ -249,23 +249,23 @@ enddef
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 
-export def slidev#Setup()
+export def Setup()
     if hlget('SlidevSlideNumHL', true)->empty()
         highlight default link SlidevSlideNumHL Comment
     endif
     EnsurePropType()
 
-    nnoremap <buffer> ]] <ScriptCmd>slidev#GoForward(v:count1)<CR>
-    nnoremap <buffer> [[ <ScriptCmd>slidev#GoBackward(v:count1)<CR>
+    nnoremap <buffer> ]] <ScriptCmd>GoForward(v:count1)<CR>
+    nnoremap <buffer> [[ <ScriptCmd>GoBackward(v:count1)<CR>
     nnoremap <buffer> <leader>s :SlidevGoToSlideNum<Space>
-    nnoremap <buffer> <leader>a <ScriptCmd>slidev#AddSlide()<CR>
-    nnoremap <buffer> <leader>D <ScriptCmd>slidev#DeleteSlide()<CR>
-    nnoremap <buffer> <leader>R <ScriptCmd>slidev#RunDev()<CR>
+    nnoremap <buffer> <leader>a <ScriptCmd>AddSlide()<CR>
+    nnoremap <buffer> <leader>D <ScriptCmd>DeleteSlide()<CR>
+    nnoremap <buffer> <leader>R <ScriptCmd>RunDev()<CR>
 
     command! -buffer -nargs=1 SlidevGoToSlideNum call slidev#GoToSlide(<args>)
     command! -buffer SlidevRefresh call slidev#UpdateGhostText()
 
-    slidev#UpdateGhostText()
+    UpdateGhostText()
     augroup SlidevGhost
         autocmd! * <buffer>
         autocmd TextChanged,TextChangedI,BufWritePost <buffer> slidev#UpdateGhostText()
