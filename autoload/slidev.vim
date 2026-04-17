@@ -194,6 +194,10 @@ export def GoForward(count: number)
     cursor(ahead[min([count - 1, len(ahead) - 1])], 1)
     # Scroll the separator to the top so slide content is immediately visible.
     normal! zt
+    if get(b:, 'slidev_focus', false)
+        silent! update
+        ApplyFocusFolds()
+    endif
 enddef
 
 export def GoBackward(count: number)
@@ -206,6 +210,10 @@ export def GoBackward(count: number)
     # max(..., 0) prevents a negative index when count exceeds available slides.
     cursor(behind[max([len(behind) - count, 0])], 1)
     normal! zt
+    if get(b:, 'slidev_focus', false)
+        silent! update
+        ApplyFocusFolds()
+    endif
 enddef
 
 export def GoToSlide(num: number)
@@ -218,6 +226,10 @@ export def GoToSlide(num: number)
     # slides[] is 0-based; slide numbers shown to the user are 1-based.
     cursor(slides[num - 1], 1)
     normal! zt
+    if get(b:, 'slidev_focus', false)
+        silent! update
+        ApplyFocusFolds()
+    endif
 enddef
 
 # ── Slide editing ─────────────────────────────────────────────────────────────
@@ -362,6 +374,53 @@ enddef
 
 # ── Single-slide focus ────────────────────────────────────────────────────────
 
+# Apply manual folds that hide every line outside the slide the cursor is on.
+# Script-local (not exported): internal helper called by FocusSlide() and the
+# navigation functions when focus mode is active.  Returns false if the cursor
+# is not inside any slide.  Does NOT scroll the viewport; callers handle zt.
+def ApplyFocusFolds(): bool
+    var slides = GetSlideLines()
+    if empty(slides)
+        return false
+    endif
+
+    var cur = line('.')
+    var slide_start = 0
+    var slide_end = line('$')
+
+    for lnum in slides
+        if lnum <= cur
+            slide_start = lnum
+        endif
+    endfor
+
+    if slide_start == 0
+        return false
+    endif
+
+    for lnum in slides
+        if lnum > slide_start
+            slide_end = lnum - 1
+            break
+        endif
+    endfor
+
+    setlocal foldmethod=manual
+    # zE clears any pre-existing folds before we create the two surrounding ones.
+    normal! zE
+
+    # Fold everything before the current slide and everything after it.
+    # The ':' prefix before the range is required in Vim9script (E1050).
+    if slide_start > 1
+        execute $':1,{slide_start - 1}fold'
+    endif
+    if slide_end < line('$')
+        execute $':{slide_end + 1},{line("$")}fold'
+    endif
+
+    return true
+enddef
+
 export def FocusSlide()
     if get(b:, 'slidev_focus', false)
         # Restore the foldmethod that was active before focus mode was entered.
@@ -380,42 +439,14 @@ export def FocusSlide()
         return
     endif
 
-    var cur = line('.')
-    var slide_start = 0
-    var slide_end = line('$')
-
-    for lnum in slides
-        if lnum <= cur
-            slide_start = lnum
-        endif
-    endfor
-
-    if slide_start == 0
+    # Capture foldmethod before ApplyFocusFolds() changes it to 'manual'.
+    var prev_fm = &l:foldmethod
+    if !ApplyFocusFolds()
         echo '[Slidev] cursor is not inside a slide'
         return
     endif
 
-    for lnum in slides
-        if lnum > slide_start
-            slide_end = lnum - 1
-            break
-        endif
-    endfor
-
-    b:slidev_prev_foldmethod = &l:foldmethod
-    setlocal foldmethod=manual
-    # zE clears any pre-existing folds before we create the two surrounding ones.
-    normal! zE
-
-    # Fold everything before the current slide and everything after it.
-    # The ':' prefix before the range is required in Vim9script (E1050).
-    if slide_start > 1
-        execute $':1,{slide_start - 1}fold'
-    endif
-    if slide_end < line('$')
-        execute $':{slide_end + 1},{line("$")}fold'
-    endif
-
+    b:slidev_prev_foldmethod = prev_fm
     b:slidev_focus = true
     normal! zt
     echo '[Slidev] focus on'

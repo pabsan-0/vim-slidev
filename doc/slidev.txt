@@ -93,8 +93,14 @@ The following commands are buffer-local and only available after detection
 *:SlidevFocus*
     Toggle single-slide focus view. When active, all content outside the
     current slide is folded away so only the current slide is visible.
-    Run again (or use |zR|) to unfold everything. The previous foldmethod is
-    restored when focus is toggled off.
+
+    While in focus mode, navigating with |]]|, |[[|, or |:SlidevGoToSlideNum|
+    automatically re-focuses the destination slide so it is the only one
+    visible. The buffer is silently auto-saved on each navigation step (only
+    when modified), so no manual |:w| is required between slides.
+
+    Run |:SlidevFocus| again (or use |zR|) to unfold everything and leave
+    focus mode. The previous foldmethod is restored when focus is toggled off.
 
 *:SlidevDisable*
     Deactivate all Slidev features for the current buffer (mappings, ghost
