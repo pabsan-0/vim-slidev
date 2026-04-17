@@ -63,17 +63,28 @@ All mappings are buffer-local and only active in detected Slidev files.
     <leader>a   Add a new slide after the current one
     <leader>D   Delete the current slide
     <leader>R   Run `pnpm dev %` in a terminal split
+    <leader>i   Print slide position and plugin variable values (:SlidevInfo)
+    <leader>z   Toggle single-slide focus view (:SlidevFocus)
 
 ==============================================================================
 5. COMMANDS                                                     *slidev-commands*
 
-Both commands are buffer-local.
+All commands are buffer-local.
 
 *:SlidevGoToSlideNum* {n}
     Jump to slide number {n} (1-based).
 
 *:SlidevRefresh*
     Manually refresh ghost-text slide number annotations.
+
+*:SlidevInfo*
+    Print the current slide position (e.g. "slide 2 / 5") and the current
+    values of |g:slidev_strictness| and |g:slidev_ignored_names|.
+
+*:SlidevFocus*
+    Toggle single-slide focus view. When active, all content outside the
+    current slide is folded away so only the current slide is visible.
+    Run again (or use |zR|) to unfold everything.
 
 ==============================================================================
 vim:ft=help:tw=78:

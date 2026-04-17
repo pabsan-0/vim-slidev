@@ -40,6 +40,8 @@ See `:help slidev` for full documentation.
 | `<leader>a` | Add slide after current |
 | `<leader>D` | Delete current slide |
 | `<leader>R` | Run `pnpm dev %` in a terminal split |
+| `<leader>i` | Print slide info (`:SlidevInfo`) |
+| `<leader>z` | Toggle single-slide focus view (`:SlidevFocus`) |
 
 ## Commands
 
@@ -47,3 +49,5 @@ See `:help slidev` for full documentation.
 |---|---|
 | `:SlidevGoToSlideNum {n}` | Jump to slide n |
 | `:SlidevRefresh` | Refresh ghost text |
+| `:SlidevInfo` | Show current slide position and plugin variables |
+| `:SlidevFocus` | Toggle single-slide focus (folds other slides away) |

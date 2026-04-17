@@ -159,7 +159,7 @@ export def GoForward(count: number)
         return
     endif
     cursor(ahead[min([count - 1, len(ahead) - 1])], 1)
-    normal! zz
+    normal! zt
 enddef
 
 export def GoBackward(count: number)
@@ -170,7 +170,7 @@ export def GoBackward(count: number)
         return
     endif
     cursor(behind[max([len(behind) - count, 0])], 1)
-    normal! zz
+    normal! zt
 enddef
 
 export def GoToSlide(num: number)
@@ -181,7 +181,7 @@ export def GoToSlide(num: number)
         return
     endif
     cursor(slides[num - 1], 1)
-    normal! zz
+    normal! zt
 enddef
 
 # ── Slide editing ─────────────────────────────────────────────────────────────
@@ -199,7 +199,7 @@ export def AddSlide()
     var insert_at = next_slide > 0 ? next_slide - 1 : line('$')
     append(insert_at, ['', '---', ''])
     cursor(insert_at + 2, 1)
-    normal! zz
+    normal! zt
     UpdateGhostText()
 enddef
 
@@ -247,6 +247,83 @@ export def RunDev()
     execute 'botright split | terminal pnpm dev ' .. shellescape(file)
 enddef
 
+# ── Info ──────────────────────────────────────────────────────────────────────
+
+export def Info()
+    var slides = GetSlideLines()
+    var total = len(slides)
+    var cur = line('.')
+
+    var slide_num = 0
+    for i in range(total)
+        if slides[i] <= cur
+            slide_num = i + 1
+        endif
+    endfor
+
+    var slide_status = slide_num > 0
+        ? $'slide {slide_num} / {total}'
+        : $'not in a slide (total: {total})'
+
+    echo $'[Slidev] {slide_status}'
+    echo $'  g:slidev_strictness    = {get(g:, "slidev_strictness", 3)}'
+    echo $'  g:slidev_ignored_names = {join(g:slidev_ignored_names, ", ")}'
+enddef
+
+# ── Single-slide focus ────────────────────────────────────────────────────────
+
+export def FocusSlide()
+    if get(b:, 'slidev_focus', false)
+        setlocal foldmethod=manual
+        normal! zE
+        b:slidev_focus = false
+        echo '[Slidev] focus off'
+        return
+    endif
+
+    var slides = GetSlideLines()
+    if empty(slides)
+        echo '[Slidev] no slides found'
+        return
+    endif
+
+    var cur = line('.')
+    var slide_start = 0
+    var slide_end = line('$')
+
+    for lnum in slides
+        if lnum <= cur
+            slide_start = lnum
+        endif
+    endfor
+
+    if slide_start == 0
+        echo '[Slidev] cursor is not inside a slide'
+        return
+    endif
+
+    for lnum in slides
+        if lnum > slide_start
+            slide_end = lnum - 1
+            break
+        endif
+    endfor
+
+    setlocal foldmethod=manual
+    normal! zE
+
+    if slide_start > 1
+        execute $'1,{slide_start - 1}fold'
+    endif
+    if slide_end < line('$')
+        execute $'{slide_end + 1},{line("$")}fold'
+    endif
+
+    b:slidev_focus = true
+    normal! zt
+    echo '[Slidev] focus on'
+enddef
+
 # ── Setup ─────────────────────────────────────────────────────────────────────
 
 export def Setup()
@@ -261,9 +338,13 @@ export def Setup()
     nnoremap <buffer> <leader>a <ScriptCmd>AddSlide()<CR>
     nnoremap <buffer> <leader>D <ScriptCmd>DeleteSlide()<CR>
     nnoremap <buffer> <leader>R <ScriptCmd>RunDev()<CR>
+    nnoremap <buffer> <leader>i <ScriptCmd>Info()<CR>
+    nnoremap <buffer> <leader>z <ScriptCmd>FocusSlide()<CR>
 
     command! -buffer -nargs=1 SlidevGoToSlideNum call slidev#GoToSlide(<args>)
     command! -buffer SlidevRefresh call slidev#UpdateGhostText()
+    command! -buffer SlidevInfo call slidev#Info()
+    command! -buffer SlidevFocus call slidev#FocusSlide()
 
     UpdateGhostText()
     augroup SlidevGhost
