@@ -260,23 +260,27 @@ const STRICTNESS_LEVELS = [
 ]
 
 export def Info()
-    var slides = GetSlideLines()
-    var total = len(slides)
-    var cur = line('.')
-
-    var slide_num = 0
-    for i in range(total)
-        if slides[i] <= cur
-            slide_num = i + 1
-        endif
-    endfor
-
-    var slide_status = slide_num > 0
-        ? $'slide {slide_num} / {total}'
-        : $'not in a slide (total: {total})'
-
+    var active   = get(b:, 'slidev_active',   false)
+    var disabled = get(b:, 'slidev_disabled',  false)
     var strictness = get(g:, 'slidev_strictness', 3)
-    var active = get(b:, 'slidev_active', false)
+
+    var slide_status: string
+    if disabled
+        slide_status = 'n/a (disabled)'
+    else
+        var slides = GetSlideLines()
+        var total = len(slides)
+        var cur = line('.')
+        var slide_num = 0
+        for i in range(total)
+            if slides[i] <= cur
+                slide_num = i + 1
+            endif
+        endfor
+        slide_status = slide_num > 0
+            ? $'slide {slide_num} / {total}'
+            : $'not in a slide (total: {total})'
+    endif
 
     var msg = $"[Slidev] {slide_status}  (active: {active})\n"
     msg ..= $"\nAuto-enable detection levels (g:slidev_strictness):\n"
@@ -347,19 +351,19 @@ enddef
 # ── Enable / Disable ──────────────────────────────────────────────────────────
 
 export def Disable()
-    try | nunmap <buffer> ]] | catch | endtry
-    try | nunmap <buffer> [[ | catch | endtry
-    try | nunmap <buffer> <leader>s | catch | endtry
-    try | nunmap <buffer> <leader>a | catch | endtry
-    try | nunmap <buffer> <leader>D | catch | endtry
-    try | nunmap <buffer> <leader>R | catch | endtry
-    try | nunmap <buffer> <leader>i | catch | endtry
-    try | nunmap <buffer> <leader>z | catch | endtry
+    silent! execute 'nunmap <buffer> ]]'
+    silent! execute 'nunmap <buffer> [['
+    silent! execute 'nunmap <buffer> <leader>s'
+    silent! execute 'nunmap <buffer> <leader>a'
+    silent! execute 'nunmap <buffer> <leader>D'
+    silent! execute 'nunmap <buffer> <leader>R'
+    silent! execute 'nunmap <buffer> <leader>i'
+    silent! execute 'nunmap <buffer> <leader>z'
 
-    try | execute 'delcommand -buffer SlidevGoToSlideNum' | catch | endtry
-    try | execute 'delcommand -buffer SlidevRefresh'      | catch | endtry
-    try | execute 'delcommand -buffer SlidevFocus'        | catch | endtry
-    try | execute 'delcommand -buffer SlidevDisable'      | catch | endtry
+    silent! execute 'delcommand -buffer SlidevGoToSlideNum'
+    silent! execute 'delcommand -buffer SlidevRefresh'
+    silent! execute 'delcommand -buffer SlidevFocus'
+    silent! execute 'delcommand -buffer SlidevDisable'
 
     var buf = bufnr('%')
     prop_remove({type: PROP_TYPE, bufnr: buf, all: true}, 1, line('$'))
