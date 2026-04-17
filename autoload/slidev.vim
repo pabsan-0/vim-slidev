@@ -409,6 +409,27 @@ def FocusUpdateGhostText()
     })
 enddef
 
+# Flush the scratch buffer to the original presentation buffer and write the
+# presentation file to disk.  Called when the user runs :w in focus mode.
+export def FocusSave()
+    FocusFlush()
+    var orig_buf = b:slidev_focus_orig_buf
+    var fname = bufname(orig_buf)
+    if fname == ''
+        echo '[Slidev] original buffer has no file name — cannot save'
+        return
+    endif
+    try
+        writefile(getbufline(orig_buf, 1, '$'), fname)
+        setbufvar(orig_buf, '&modified', 0)
+        echo $'[Slidev] saved {fname}'
+    catch
+        echohl ErrorMsg
+        echo $'[Slidev] save failed: {v:exception}'
+        echohl None
+    endtry
+enddef
+
 # Write the scratch buffer's current lines back to the corresponding slide
 # range in the original presentation buffer.  Called before every navigation
 # step and before exiting focus mode.
@@ -544,6 +565,18 @@ export def FocusSlide()
     nnoremap <buffer> ]] <ScriptCmd>FocusNavForward(v:count1)<CR>
     nnoremap <buffer> [[ <ScriptCmd>FocusNavBackward(v:count1)<CR>
     nnoremap <buffer> <leader>z <ScriptCmd>FocusSlide()<CR>
+    # Make lone ] and [ no-ops so that typing ]] or [[ slowly (past timeoutlen)
+    # does not trigger the default ] / [ motions and cause unexpected jumps.
+    # The two-character ]] and [[ mappings still fire when both keys arrive
+    # within timeoutlen.
+    nnoremap <buffer> ] <Nop>
+    nnoremap <buffer> [ <Nop>
+
+    # Intercept :w so it flushes and saves the whole presentation file.
+    augroup SlidevFocusBuf
+        autocmd! * <buffer>
+        autocmd BufWriteCmd <buffer> call slidev#FocusSave()
+    augroup END
 
     cursor(1, 1)
     normal! zt
