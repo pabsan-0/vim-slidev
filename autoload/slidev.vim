@@ -267,14 +267,14 @@ export def Info()
 
     echo $'[Slidev] {slide_status}'
     echo $'  g:slidev_strictness    = {get(g:, "slidev_strictness", 3)}'
-    echo $'  g:slidev_ignored_names = {join(g:slidev_ignored_names, ", ")}'
+    echo $'  g:slidev_ignored_names = {join(get(g:, "slidev_ignored_names", []), ", ")}'
 enddef
 
 # ── Single-slide focus ────────────────────────────────────────────────────────
 
 export def FocusSlide()
     if get(b:, 'slidev_focus', false)
-        setlocal foldmethod=manual
+        execute $'setlocal foldmethod={get(b:, "slidev_prev_foldmethod", "manual")}'
         normal! zE
         b:slidev_focus = false
         echo '[Slidev] focus off'
@@ -309,6 +309,7 @@ export def FocusSlide()
         endif
     endfor
 
+    b:slidev_prev_foldmethod = &l:foldmethod
     setlocal foldmethod=manual
     normal! zE
 
