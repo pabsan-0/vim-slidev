@@ -272,20 +272,44 @@ export def DeleteSlide()
 enddef
 
 export def RunDev()
+    # package.json must exist: it defines the project root and the pnpm workspace.
+    # Without it there is no meaningful directory to run the dev server from.
+    var pkg_path = findfile('package.json', '.;')
+    if pkg_path == ''
+        echohl WarningMsg
+        echo 'SlidevRunDev: no package.json found up the directory tree'
+        echohl None
+        return
+    endif
     if !executable('pnpm')
         echohl WarningMsg
         echo 'SlidevRunDev: pnpm not found in PATH'
         echohl None
         return
     endif
-    var file = expand('%:p')
-    if file == ''
+    var file_abs = expand('%:p')
+    if file_abs == ''
         echohl WarningMsg
         echo 'SlidevRunDev: buffer has no file path'
         echohl None
         return
     endif
-    execute 'botright split | terminal pnpm dev ' .. shellescape(file)
+
+    var pkg_dir = fnamemodify(pkg_path, ':p:h')
+    # Slidev expects the entry file relative to the project root (package.json dir).
+    # Strip the leading project-root prefix so the path is portable.
+    var rel_file = file_abs
+    if stridx(file_abs, pkg_dir) == 0
+        rel_file = file_abs[len(pkg_dir) + 1 :]
+    endif
+
+    # 'botright terminal' opens exactly one new full-width window at the bottom.
+    # 'botright split | terminal' first duplicates the current buffer in a new
+    # split and then opens terminal there, which produces three windows.
+    # '++cwd' sets the terminal's working directory to the project root so that
+    # pnpm resolves dependencies from the correct node_modules.
+    execute 'botright terminal ++cwd=' .. shellescape(pkg_dir)
+        .. ' pnpm dev ' .. shellescape(rel_file)
 enddef
 
 # ── Info ──────────────────────────────────────────────────────────────────────
