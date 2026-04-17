@@ -380,10 +380,33 @@ def FocusGetRange(buf: number, slide_idx: number): list<number>
     return [slide_start, slide_end]
 enddef
 
-# Clear all lines from the current buffer into the black hole register so the
-# undo history of unrelated buffers is not polluted.
-def BufClear()
-    execute 'silent! %delete _'
+# Replace all lines of the current buffer with `content`.
+# setline() replaces from line 1 but does not shrink the buffer, so any
+# trailing lines left over from longer previous content are pruned explicitly.
+def FocusReplaceContent(content: list<string>)
+    var old_count = line('$')
+    var new_count = len(content)
+    setline(1, content)
+    if old_count > new_count
+        deletebufline(bufnr('%'), new_count + 1, old_count)
+    endif
+enddef
+
+# Add (or refresh) the ghost-text annotation on line 1 of the scratch buffer
+# showing the slide position in the same format as the original buffer, with
+# an [F] marker to indicate focus mode.
+def FocusUpdateGhostText()
+    EnsurePropType()
+    var slide_idx = b:slidev_focus_slide_idx
+    var total     = len(GetSlideLinesFromBuf(b:slidev_focus_orig_buf))
+    var buf       = bufnr('%')
+    prop_remove({type: PROP_TYPE, bufnr: buf, all: true}, 1, 1)
+    prop_add(1, 0, {
+        bufnr:      buf,
+        type:       PROP_TYPE,
+        text:       $'  ⟨ slide {slide_idx + 1} / {total} [F] ⟩',
+        text_align: 'after',
+    })
 enddef
 
 # Write the scratch buffer's current lines back to the corresponding slide
@@ -402,16 +425,13 @@ enddef
 def FocusLoadSlide()
     var orig_buf  = b:slidev_focus_orig_buf
     var slide_idx = b:slidev_focus_slide_idx
-    var slides    = GetSlideLinesFromBuf(orig_buf)
     var [slide_start, slide_end] = FocusGetRange(orig_buf, slide_idx)
     var content   = getbufline(orig_buf, slide_start, slide_end)
-    # Replace all lines in the scratch buffer without touching undo history of
-    # the original buffer.
-    BufClear()
-    setline(1, content)
+    FocusReplaceContent(content)
+    FocusUpdateGhostText()
     cursor(1, 1)
     normal! zt
-    echo $'[Slidev] slide {slide_idx + 1} / {len(slides)}'
+    echo $'[Slidev] slide {slide_idx + 1} / {len(GetSlideLinesFromBuf(orig_buf))}'
 enddef
 
 # Move forward by count slides while in focus mode.
@@ -515,9 +535,9 @@ export def FocusSlide()
     b:slidev_focus_orig_buf  = orig_buf
     b:slidev_focus_slide_idx = slide_idx
 
-    # Populate with the current slide's lines.
-    BufClear()
-    setline(1, content)
+    # Populate with the current slide's lines and show the ghost-text annotation.
+    FocusReplaceContent(content)
+    FocusUpdateGhostText()
 
     # Buffer-local navigation mappings — <ScriptCmd> resolves the private
     # helpers in this script's scope without needing the slidev# prefix.
