@@ -279,7 +279,7 @@ export def Info()
     var active = get(b:, 'slidev_active', false)
 
     var msg = $"[Slidev] {slide_status}  (active: {active})\n"
-    msg ..= $"\nStrictness levels:\n"
+    msg ..= $"\nAuto-enable detection levels (g:slidev_strictness):\n"
     for [lvl, desc] in STRICTNESS_LEVELS
         var marker = lvl == strictness ? ' ◀ current' : ''
         msg ..= $"  {lvl}  {desc}{marker}\n"
@@ -356,10 +356,10 @@ export def Disable()
     try | nunmap <buffer> <leader>i | catch | endtry
     try | nunmap <buffer> <leader>z | catch | endtry
 
-    try | execute 'delcommand SlidevGoToSlideNum' | catch | endtry
-    try | execute 'delcommand SlidevRefresh'      | catch | endtry
-    try | execute 'delcommand SlidevFocus'        | catch | endtry
-    try | execute 'delcommand SlidevDisable'      | catch | endtry
+    try | execute 'delcommand -buffer SlidevGoToSlideNum' | catch | endtry
+    try | execute 'delcommand -buffer SlidevRefresh'      | catch | endtry
+    try | execute 'delcommand -buffer SlidevFocus'        | catch | endtry
+    try | execute 'delcommand -buffer SlidevDisable'      | catch | endtry
 
     var buf = bufnr('%')
     prop_remove({type: PROP_TYPE, bufnr: buf, all: true}, 1, line('$'))
@@ -405,6 +405,4 @@ export def Setup()
         autocmd! * <buffer>
         autocmd TextChanged,TextChangedI,BufWritePost <buffer> slidev#UpdateGhostText()
     augroup END
-
-    echo $'[Slidev] mappings active (strictness={get(g:, "slidev_strictness", 3)})'
 enddef
