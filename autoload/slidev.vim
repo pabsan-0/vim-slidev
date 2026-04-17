@@ -3,6 +3,9 @@ vim9script
 # ── Detection ─────────────────────────────────────────────────────────────────
 
 export def Detect()
+    if get(b:, 'slidev_disabled', false)
+        return
+    endif
     var basename = expand('%:t')->tolower()
     if index(g:slidev_ignored_names, basename) >= 0
         return
@@ -249,6 +252,13 @@ enddef
 
 # ── Info ──────────────────────────────────────────────────────────────────────
 
+const STRICTNESS_LEVELS = [
+    [1, 'first line is exactly `---`'],
+    [2, 'package.json found up the directory tree'],
+    [3, 'package.json lists a slidev dependency (default)'],
+    [4, 'prettier config has a *.md override'],
+]
+
 export def Info()
     var slides = GetSlideLines()
     var total = len(slides)
@@ -265,9 +275,18 @@ export def Info()
         ? $'slide {slide_num} / {total}'
         : $'not in a slide (total: {total})'
 
-    echo $'[Slidev] {slide_status}'
-    echo $'  g:slidev_strictness    = {get(g:, "slidev_strictness", 3)}'
-    echo $'  g:slidev_ignored_names = {join(get(g:, "slidev_ignored_names", []), ", ")}'
+    var strictness = get(g:, 'slidev_strictness', 3)
+    var active = get(b:, 'slidev_active', false)
+
+    var msg = $"[Slidev] {slide_status}  (active: {active})\n"
+    msg ..= $"\nStrictness levels:\n"
+    for [lvl, desc] in STRICTNESS_LEVELS
+        var marker = lvl == strictness ? ' ◀ current' : ''
+        msg ..= $"  {lvl}  {desc}{marker}\n"
+    endfor
+    msg ..= $"\ng:slidev_strictness    = {strictness}"
+    msg ..= $"\ng:slidev_ignored_names = {join(get(g:, 'slidev_ignored_names', []), ', ')}"
+    echo msg
 enddef
 
 # ── Single-slide focus ────────────────────────────────────────────────────────
@@ -314,15 +333,47 @@ export def FocusSlide()
     normal! zE
 
     if slide_start > 1
-        execute $'1,{slide_start - 1}fold'
+        execute $':1,{slide_start - 1}fold'
     endif
     if slide_end < line('$')
-        execute $'{slide_end + 1},{line("$")}fold'
+        execute $':{slide_end + 1},{line("$")}fold'
     endif
 
     b:slidev_focus = true
     normal! zt
     echo '[Slidev] focus on'
+enddef
+
+# ── Enable / Disable ──────────────────────────────────────────────────────────
+
+export def Disable()
+    try | nunmap <buffer> ]] | catch | endtry
+    try | nunmap <buffer> [[ | catch | endtry
+    try | nunmap <buffer> <leader>s | catch | endtry
+    try | nunmap <buffer> <leader>a | catch | endtry
+    try | nunmap <buffer> <leader>D | catch | endtry
+    try | nunmap <buffer> <leader>R | catch | endtry
+    try | nunmap <buffer> <leader>i | catch | endtry
+    try | nunmap <buffer> <leader>z | catch | endtry
+
+    try | execute 'delcommand SlidevGoToSlideNum' | catch | endtry
+    try | execute 'delcommand SlidevRefresh'      | catch | endtry
+    try | execute 'delcommand SlidevFocus'        | catch | endtry
+    try | execute 'delcommand SlidevDisable'      | catch | endtry
+
+    var buf = bufnr('%')
+    prop_remove({type: PROP_TYPE, bufnr: buf, all: true}, 1, line('$'))
+
+    autocmd! SlidevGhost * <buffer>
+
+    b:slidev_active   = false
+    b:slidev_disabled = true
+    echo '[Slidev] disabled'
+enddef
+
+export def Enable()
+    b:slidev_disabled = false
+    Setup()
 enddef
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
@@ -344,8 +395,10 @@ export def Setup()
 
     command! -buffer -nargs=1 SlidevGoToSlideNum call slidev#GoToSlide(<args>)
     command! -buffer SlidevRefresh call slidev#UpdateGhostText()
-    command! -buffer SlidevInfo call slidev#Info()
     command! -buffer SlidevFocus call slidev#FocusSlide()
+    command! -buffer SlidevDisable call slidev#Disable()
+
+    b:slidev_active = true
 
     UpdateGhostText()
     augroup SlidevGhost

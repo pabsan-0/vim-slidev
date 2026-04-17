@@ -1,3 +1,5 @@
+:SlidevDisable	slidev.txt	/*:SlidevDisable*
+:SlidevEnable	slidev.txt	/*:SlidevEnable*
 :SlidevFocus	slidev.txt	/*:SlidevFocus*
 :SlidevGoToSlideNum	slidev.txt	/*:SlidevGoToSlideNum*
 :SlidevInfo	slidev.txt	/*:SlidevInfo*

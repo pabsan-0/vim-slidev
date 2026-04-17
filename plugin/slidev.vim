@@ -23,6 +23,9 @@ if !exists('g:slidev_ignored_names')
     ]
 endif
 
+command! SlidevInfo   call slidev#Info()
+command! SlidevEnable call slidev#Enable()
+
 augroup Slidev
     autocmd!
     autocmd BufRead,BufNewFile *.md slidev#Detect()

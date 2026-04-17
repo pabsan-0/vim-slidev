@@ -45,9 +45,19 @@ See `:help slidev` for full documentation.
 
 ## Commands
 
+**Always available (any buffer):**
+
+| Command | Action |
+|---|---|
+| `:SlidevInfo` | Show slide position, all strictness levels, and variable values |
+| `:SlidevEnable` | Activate Slidev in the current buffer (bypasses detection) |
+
+**Buffer-local (active Slidev buffers only):**
+
 | Command | Action |
 |---|---|
 | `:SlidevGoToSlideNum {n}` | Jump to slide n |
 | `:SlidevRefresh` | Refresh ghost text |
-| `:SlidevInfo` | Show current slide position and plugin variables |
 | `:SlidevFocus` | Toggle single-slide focus (folds other slides away) |
+| `:SlidevDisable` | Deactivate all Slidev features for the current buffer |
+

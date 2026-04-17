@@ -69,7 +69,20 @@ All mappings are buffer-local and only active in detected Slidev files.
 ==============================================================================
 5. COMMANDS                                                     *slidev-commands*
 
-All commands are buffer-local.
+The following commands are always globally available (any buffer):
+
+*:SlidevInfo*
+    Print the current slide position (e.g. "slide 2 / 5"), whether the plugin
+    is active in the current buffer, all strictness levels with descriptions
+    (marking the current one), and the current values of |g:slidev_strictness|
+    and |g:slidev_ignored_names|.
+
+*:SlidevEnable*
+    Activate Slidev in the current buffer, bypassing automatic detection. Also
+    re-enables a buffer that was previously disabled with |:SlidevDisable|.
+
+The following commands are buffer-local and only available after detection
+(or after |:SlidevEnable|):
 
 *:SlidevGoToSlideNum* {n}
     Jump to slide number {n} (1-based).
@@ -77,14 +90,15 @@ All commands are buffer-local.
 *:SlidevRefresh*
     Manually refresh ghost-text slide number annotations.
 
-*:SlidevInfo*
-    Print the current slide position (e.g. "slide 2 / 5") and the current
-    values of |g:slidev_strictness| and |g:slidev_ignored_names|.
-
 *:SlidevFocus*
     Toggle single-slide focus view. When active, all content outside the
     current slide is folded away so only the current slide is visible.
-    Run again (or use |zR|) to unfold everything.
+    Run again (or use |zR|) to unfold everything. The previous foldmethod is
+    restored when focus is toggled off.
+
+*:SlidevDisable*
+    Deactivate all Slidev features for the current buffer (mappings, ghost
+    text, commands, autocmds). Use |:SlidevEnable| to reactivate.
 
 ==============================================================================
 vim:ft=help:tw=78:
