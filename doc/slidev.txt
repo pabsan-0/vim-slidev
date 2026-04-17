@@ -91,16 +91,18 @@ The following commands are buffer-local and only available after detection
     Manually refresh ghost-text slide number annotations.
 
 *:SlidevFocus*
-    Toggle single-slide focus view. When active, all content outside the
-    current slide is folded away so only the current slide is visible.
+    Toggle single-slide focus view. When active, the current slide is opened
+    in a temporary scratch window so only its content is visible. The original
+    presentation file stays in the background unchanged.
 
-    While in focus mode, navigating with |]]|, |[[|, or |:SlidevGoToSlideNum|
-    automatically re-focuses the destination slide so it is the only one
-    visible. The buffer is silently auto-saved on each navigation step (only
-    when modified), so no manual |:w| is required between slides.
+    While in the focus window:
+    - |]]| / |[[| flush any edits back to the original buffer and load the
+      next or previous slide. No manual |:w| is required between slides.
+    - |<leader>z| (or |:SlidevFocus|) exits focus mode, flushes the final
+      edits back, and returns the cursor to the original buffer at the slide
+      that was last focused.
 
-    Run |:SlidevFocus| again (or use |zR|) to unfold everything and leave
-    focus mode. The previous foldmethod is restored when focus is toggled off.
+    The original buffer accumulates all edits; use |:w| once to save to disk.
 
 *:SlidevDisable*
     Deactivate all Slidev features for the current buffer (mappings, ghost

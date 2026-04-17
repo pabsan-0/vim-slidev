@@ -117,25 +117,26 @@ enddef
 
 # ── Slide-line index ──────────────────────────────────────────────────────────
 
-export def GetSlideLines(): list<number>
+# Read slide separator line numbers from any buffer.  Used by the public
+# GetSlideLines() (current buffer) and by focus mode helpers (original buffer).
+def GetSlideLinesFromBuf(buf: number): list<number>
+    var lines = getbufline(buf, 1, '$')
+    var total = len(lines)
     var slides: list<number> = []
-    var total = line('$')
-    # Track whether we are inside a YAML front-matter block so the closing
-    # '---' is not mistaken for a slide separator.
     var in_frontmatter = false
 
-    for lnum in range(1, total)
-        if getline(lnum) ==# '---'
+    for i in range(total)
+        if lines[i] ==# '---'
             if !in_frontmatter
-                slides->add(lnum)
+                slides->add(i + 1)
                 # Peek ahead past blank lines to check for a YAML key on the
                 # next non-blank line ('key:' pattern).  If found, this '---'
                 # opened a front-matter block rather than a slide separator.
-                var peek = lnum + 1
-                while peek <= total && getline(peek) =~# '^\s*$'
+                var peek = i + 1
+                while peek < total && lines[peek] =~# '^\s*$'
                     peek += 1
                 endwhile
-                if peek <= total && getline(peek) =~# '^[A-Za-z_][A-Za-z0-9_-]*\s*:'
+                if peek < total && lines[peek] =~# '^[A-Za-z_][A-Za-z0-9_-]*\s*:'
                     in_frontmatter = true
                 endif
             else
@@ -147,6 +148,10 @@ export def GetSlideLines(): list<number>
     endfor
 
     return slides
+enddef
+
+export def GetSlideLines(): list<number>
+    return GetSlideLinesFromBuf(bufnr('%'))
 enddef
 
 # ── Ghost text ────────────────────────────────────────────────────────────────
@@ -194,10 +199,6 @@ export def GoForward(count: number)
     cursor(ahead[min([count - 1, len(ahead) - 1])], 1)
     # Scroll the separator to the top so slide content is immediately visible.
     normal! zt
-    if get(b:, 'slidev_focus', false)
-        silent! update
-        ApplyFocusFolds()
-    endif
 enddef
 
 export def GoBackward(count: number)
@@ -210,10 +211,6 @@ export def GoBackward(count: number)
     # max(..., 0) prevents a negative index when count exceeds available slides.
     cursor(behind[max([len(behind) - count, 0])], 1)
     normal! zt
-    if get(b:, 'slidev_focus', false)
-        silent! update
-        ApplyFocusFolds()
-    endif
 enddef
 
 export def GoToSlide(num: number)
@@ -226,10 +223,6 @@ export def GoToSlide(num: number)
     # slides[] is 0-based; slide numbers shown to the user are 1-based.
     cursor(slides[num - 1], 1)
     normal! zt
-    if get(b:, 'slidev_focus', false)
-        silent! update
-        ApplyFocusFolds()
-    endif
 enddef
 
 # ── Slide editing ─────────────────────────────────────────────────────────────
@@ -374,62 +367,110 @@ enddef
 
 # ── Single-slide focus ────────────────────────────────────────────────────────
 
-# Apply manual folds that hide every line outside the slide the cursor is on.
-# Script-local (not exported): internal helper called by FocusSlide() and the
-# navigation functions when focus mode is active.  Returns false if the cursor
-# is not inside any slide.  Does NOT scroll the viewport; callers handle zt.
-def ApplyFocusFolds(): bool
+# Return the [start, end] 1-based inclusive line range of slide_idx inside buf.
+def FocusGetRange(buf: number, slide_idx: number): list<number>
+    var slides    = GetSlideLinesFromBuf(buf)
+    var slide_start = slides[slide_idx]
+    # For the last slide, slide_end is the final line of the buffer.
+    # len(getbufline(...)) equals the last 1-based line number because
+    # getbufline returns one entry per line.
+    var slide_end   = slide_idx + 1 < len(slides)
+        ? slides[slide_idx + 1] - 1
+        : len(getbufline(buf, 1, '$'))
+    return [slide_start, slide_end]
+enddef
+
+# Clear all lines from the current buffer into the black hole register so the
+# undo history of unrelated buffers is not polluted.
+def BufClear()
+    execute 'silent! %delete _'
+enddef
+
+# Write the scratch buffer's current lines back to the corresponding slide
+# range in the original presentation buffer.  Called before every navigation
+# step and before exiting focus mode.
+def FocusFlush()
+    var orig_buf  = b:slidev_focus_orig_buf
+    var slide_idx = b:slidev_focus_slide_idx
+    var [slide_start, slide_end] = FocusGetRange(orig_buf, slide_idx)
+    var new_lines = getbufline(bufnr('%'), 1, '$')
+    deletebufline(orig_buf, slide_start, slide_end)
+    appendbufline(orig_buf, slide_start - 1, new_lines)
+enddef
+
+# Replace the scratch buffer's content with slide_idx from the original buffer.
+def FocusLoadSlide()
+    var orig_buf  = b:slidev_focus_orig_buf
+    var slide_idx = b:slidev_focus_slide_idx
+    var slides    = GetSlideLinesFromBuf(orig_buf)
+    var [slide_start, slide_end] = FocusGetRange(orig_buf, slide_idx)
+    var content   = getbufline(orig_buf, slide_start, slide_end)
+    # Replace all lines in the scratch buffer without touching undo history of
+    # the original buffer.
+    BufClear()
+    setline(1, content)
+    cursor(1, 1)
+    normal! zt
+    echo $'[Slidev] slide {slide_idx + 1} / {len(slides)}'
+enddef
+
+# Move forward by count slides while in focus mode.
+def FocusNavForward(count: number)
+    FocusFlush()
+    var orig_buf  = b:slidev_focus_orig_buf
+    var slide_idx = b:slidev_focus_slide_idx
+    var total     = len(GetSlideLinesFromBuf(orig_buf))
+    var new_idx   = min([slide_idx + count, total - 1])
+    if new_idx == slide_idx
+        echo '[Slidev] already on last slide'
+        return
+    endif
+    b:slidev_focus_slide_idx = new_idx
+    FocusLoadSlide()
+enddef
+
+# Move backward by count slides while in focus mode.
+def FocusNavBackward(count: number)
+    FocusFlush()
+    var orig_buf  = b:slidev_focus_orig_buf
+    var slide_idx = b:slidev_focus_slide_idx
+    var new_idx   = max([slide_idx - count, 0])
+    if new_idx == slide_idx
+        echo '[Slidev] already on first slide'
+        return
+    endif
+    b:slidev_focus_slide_idx = new_idx
+    FocusLoadSlide()
+enddef
+
+# Exit focus mode: flush, wipe scratch buffer, return to original.
+def FocusExit()
+    FocusFlush()
+    var orig_buf  = b:slidev_focus_orig_buf
+    var slide_idx = b:slidev_focus_slide_idx
+    # Switching away triggers bufhidden=wipe and automatically deletes the scratch.
+    execute $'buffer {orig_buf}'
+    # We are now in the original buffer.
+    b:slidev_focus = false
+    # Place the cursor on the separator line of the last focused slide.
     var slides = GetSlideLines()
-    if empty(slides)
-        return false
+    if slide_idx < len(slides)
+        cursor(slides[slide_idx], 1)
+        normal! zt
     endif
-
-    var cur = line('.')
-    var slide_start = 0
-    var slide_end = line('$')
-
-    for lnum in slides
-        if lnum <= cur
-            slide_start = lnum
-        endif
-    endfor
-
-    if slide_start == 0
-        return false
-    endif
-
-    for lnum in slides
-        if lnum > slide_start
-            slide_end = lnum - 1
-            break
-        endif
-    endfor
-
-    setlocal foldmethod=manual
-    # zE clears any pre-existing folds before we create the two surrounding ones.
-    normal! zE
-
-    # Fold everything before the current slide and everything after it.
-    # The ':' prefix before the range is required in Vim9script (E1050).
-    if slide_start > 1
-        execute $':1,{slide_start - 1}fold'
-    endif
-    if slide_end < line('$')
-        execute $':{slide_end + 1},{line("$")}fold'
-    endif
-
-    return true
+    echo '[Slidev] focus off'
 enddef
 
 export def FocusSlide()
+    # If called from the scratch buffer, exit focus mode.
+    if get(b:, 'slidev_focus_scratch', false)
+        FocusExit()
+        return
+    endif
+
+    # Guard against opening a second focus session on the same buffer.
     if get(b:, 'slidev_focus', false)
-        # Restore the foldmethod that was active before focus mode was entered.
-        execute $'setlocal foldmethod={get(b:, "slidev_prev_foldmethod", "manual")}'
-        # zE deletes all folds so the restored foldmethod starts from a clean
-        # slate (avoids leftover manual folds when switching to e.g. 'indent').
-        normal! zE
-        b:slidev_focus = false
-        echo '[Slidev] focus off'
+        echo '[Slidev] focus already active — press <leader>z in the focus window to exit'
         return
     endif
 
@@ -439,22 +480,68 @@ export def FocusSlide()
         return
     endif
 
-    # Capture foldmethod before ApplyFocusFolds() changes it to 'manual'.
-    var prev_fm = &l:foldmethod
-    if !ApplyFocusFolds()
+    var cur       = line('.')
+    var slide_idx = -1
+    for i in range(len(slides))
+        if slides[i] <= cur
+            slide_idx = i
+        endif
+    endfor
+
+    if slide_idx < 0
         echo '[Slidev] cursor is not inside a slide'
         return
     endif
 
-    b:slidev_prev_foldmethod = prev_fm
+    var orig_buf = bufnr('%')
+    var [slide_start, slide_end] = FocusGetRange(orig_buf, slide_idx)
+    var content = getbufline(orig_buf, slide_start, slide_end)
+
+    # Mark the original buffer as having an active focus session, and remember
+    # the scratch bufnr so Disable() can clean up if needed.
     b:slidev_focus = true
+
+    # Create and switch to a scratch buffer in the current window.
+    var scratch = bufadd('')
+    bufload(scratch)
+    b:slidev_focus_scratch_buf = scratch
+    execute $'buffer {scratch}'
+
+    # Configure the scratch buffer (current buffer is now scratch).
+    setlocal buftype=nofile noswapfile bufhidden=wipe nobuflisted filetype=markdown
+
+    # Store focus metadata.
+    b:slidev_focus_scratch   = true
+    b:slidev_focus_orig_buf  = orig_buf
+    b:slidev_focus_slide_idx = slide_idx
+
+    # Populate with the current slide's lines.
+    BufClear()
+    setline(1, content)
+
+    # Buffer-local navigation mappings — <ScriptCmd> resolves the private
+    # helpers in this script's scope without needing the slidev# prefix.
+    nnoremap <buffer> ]] <ScriptCmd>FocusNavForward(v:count1)<CR>
+    nnoremap <buffer> [[ <ScriptCmd>FocusNavBackward(v:count1)<CR>
+    nnoremap <buffer> <leader>z <ScriptCmd>FocusSlide()<CR>
+
+    cursor(1, 1)
     normal! zt
-    echo '[Slidev] focus on'
+    echo $'[Slidev] focus on — slide {slide_idx + 1} / {len(slides)}'
 enddef
 
 # ── Enable / Disable ──────────────────────────────────────────────────────────
 
 export def Disable()
+    # If a focus scratch buffer is open, wipe it before tearing down the plugin.
+    if get(b:, 'slidev_focus', false)
+        var scratch = get(b:, 'slidev_focus_scratch_buf', -1)
+        if scratch >= 0 && bufexists(scratch)
+            execute $'bwipeout! {scratch}'
+        endif
+        b:slidev_focus = false
+    endif
+
     # In Vim9script, special key sequences like ]] and [[ are not parsed
     # correctly when written inline in a nunmap statement.  Wrapping them as
     # strings inside execute() is the reliable approach.  silent! absorbs the
