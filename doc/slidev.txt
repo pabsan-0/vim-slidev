@@ -8,6 +8,7 @@ CONTENTS                                                        *slidev-contents
     3. Configuration ............. |slidev-configuration|
     4. Mappings .................. |slidev-mappings|
     5. Commands .................. |slidev-commands|
+    6. Snippets .................. |slidev-snippets|
 
 ==============================================================================
 1. INTRODUCTION                                             *slidev-introduction*
@@ -65,6 +66,8 @@ All mappings are buffer-local and only active in detected Slidev files.
     <leader>R   Run `pnpm dev %` in a terminal split
     <leader>i   Print slide position and plugin variable values (:SlidevInfo)
     <leader>z   Toggle single-slide focus view (:SlidevFocus)
+    <leader>xe  Open the command line pre-filled with :SlidevSnippetExtract
+    <leader>xi  Inline the snippet reference under the cursor (:SlidevSnippetInline)
 
 ==============================================================================
 5. COMMANDS                                                     *slidev-commands*
@@ -99,6 +102,39 @@ The following commands are buffer-local and only available after detection
 *:SlidevDisable*
     Deactivate all Slidev features for the current buffer (mappings, ghost
     text, commands, autocmds). Use |:SlidevEnable| to reactivate.
+
+==============================================================================
+6. SNIPPETS                                                     *slidev-snippets*
+
+Slidev supports two ways to embed code in a slide:
+
+    Inline fenced block: >
+        ```c
+        int main() { return 0; }
+        ```
+<
+    External snippet reference: >
+        <<< @/snippets/example.c
+<
+
+The snippet commands let you move code between these two forms.  The
+`snippets/` directory is always resolved relative to the .md file being
+edited.  When `@/` references are read back (|:SlidevSnippetInline|) the
+project root (package.json directory) is also tried first.
+
+*:SlidevSnippetExtract* [{file}]
+    Extract the fenced code block that surrounds the cursor into a file
+    inside `snippets/` and replace the block with a `<<< @/snippets/{file}`
+    reference.  When {file} is omitted the user is prompted.  The
+    `snippets/` directory is created automatically if it does not exist.
+    Also available as |<leader>xe| (opens the command line pre-filled).
+
+*:SlidevSnippetInline*[!]
+    Replace the `<<<` snippet reference on the current line with the
+    contents of the referenced file as a fenced code block.  The language
+    identifier is inferred from the file extension.
+    With `!` the snippet file is also deleted from disk after inlining.
+    Also available as |<leader>xi|.
 
 ==============================================================================
 vim:ft=help:tw=78:

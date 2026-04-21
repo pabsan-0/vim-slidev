@@ -421,6 +421,177 @@ export def FocusSlide()
     echo '[Slidev] focus on'
 enddef
 
+# ── Snippets ──────────────────────────────────────────────────────────────────
+
+# Map common file extensions to fenced-code-block language identifiers.
+def ExtToLang(ext: string): string
+    var map: dict<string> = {
+        c: 'c', h: 'c', cpp: 'cpp', cc: 'cpp', cxx: 'cpp', hpp: 'cpp',
+        cs: 'csharp', fs: 'fsharp',
+        go: 'go', rs: 'rust', swift: 'swift', kt: 'kotlin',
+        java: 'java', scala: 'scala', groovy: 'groovy',
+        js: 'javascript', ts: 'typescript', jsx: 'jsx', tsx: 'tsx',
+        mjs: 'javascript', cjs: 'javascript',
+        py: 'python', rb: 'ruby', lua: 'lua', php: 'php', pl: 'perl',
+        sh: 'bash', bash: 'bash', zsh: 'bash', fish: 'fish', ps1: 'powershell',
+        html: 'html', css: 'css', scss: 'scss', sass: 'sass', less: 'less',
+        json: 'json', yaml: 'yaml', yml: 'yaml', toml: 'toml', xml: 'xml',
+        md: 'markdown', sql: 'sql', vim: 'vim', r: 'r', dart: 'dart',
+        ex: 'elixir', exs: 'elixir', erl: 'erlang', hs: 'haskell',
+        tf: 'hcl', hcl: 'hcl', proto: 'protobuf', graphql: 'graphql',
+    }
+    return get(map, ext, ext)
+enddef
+
+# Resolve a Slidev snippet reference (@/... or ./... or bare path) to an
+# absolute file path.  Returns '' when the file cannot be found.
+def ResolveSnippetRef(ref: string): string
+    var md_dir = expand('%:p:h')
+    if ref =~# '^@/'
+        # '@/' is the Vite/Slidev project root (where package.json lives).
+        # Fall back to the md's directory when no package.json is found.
+        var rel = ref[2 :]
+        var pkg_path = findfile('package.json', '.;')
+        if pkg_path != ''
+            var candidate = fnamemodify(pkg_path, ':p:h') .. '/' .. rel
+            if filereadable(candidate)
+                return candidate
+            endif
+        endif
+        var candidate = md_dir .. '/' .. rel
+        return filereadable(candidate) ? candidate : ''
+    elseif ref =~# '^\.'
+        return md_dir .. '/' .. ref
+    else
+        return md_dir .. '/' .. ref
+    endif
+enddef
+
+# Extract the fenced code block the cursor is in (or on its delimiters) to a
+# file under snippets/ and replace the block with a <<< @/snippets/<file>
+# reference.  Accepts an optional filename; when omitted the user is prompted.
+export def SnippetExtract(fname_arg: string = '')
+    var cur    = line('.')
+    var total  = line('$')
+
+    # Walk backward to find the nearest opening fence (``` or ~~~).
+    var fence_open = 0
+    var fence_pat  = ''
+    for lnum in range(cur, 1, -1)
+        var lc = getline(lnum)
+        if lc =~# '^```'
+            fence_open = lnum
+            fence_pat  = '```'
+            break
+        elseif lc =~# '^~~~'
+            fence_open = lnum
+            fence_pat  = '~~~'
+            break
+        endif
+    endfor
+
+    if fence_open == 0
+        echohl WarningMsg
+        echo '[Slidev] cursor is not inside a fenced code block'
+        echohl None
+        return
+    endif
+
+    # Walk forward from the opening fence to find the closing fence.
+    var fence_close = 0
+    for lnum in range(fence_open + 1, total)
+        if getline(lnum) =~# '^' .. fence_pat .. '\s*$'
+            fence_close = lnum
+            break
+        endif
+    endfor
+
+    if fence_close == 0
+        echohl WarningMsg
+        echo '[Slidev] could not find the closing fence'
+        echohl None
+        return
+    endif
+
+    # Reject if the cursor is outside [fence_open, fence_close].
+    if cur > fence_close
+        echohl WarningMsg
+        echo '[Slidev] cursor is not inside a fenced code block'
+        echohl None
+        return
+    endif
+
+    # Extract language specifier from the opening fence line.
+    var lang = getline(fence_open)->matchstr('^' .. fence_pat .. '\s*\zs\S*')
+
+    # Lines between the fences (exclusive) are the snippet content.
+    var code_lines = getline(fence_open + 1, fence_close - 1)
+
+    # Determine the filename: use the argument, or ask the user.
+    var fname = fname_arg
+    if fname == ''
+        fname = input('Snippet filename: ')
+    endif
+    if fname == ''
+        return
+    endif
+
+    # Write the snippet to snippets/<fname>, relative to the .md file.
+    var snippets_dir = expand('%:p:h') .. '/snippets'
+    if !isdirectory(snippets_dir)
+        mkdir(snippets_dir, 'p')
+    endif
+    var full_path = snippets_dir .. '/' .. fname
+    writefile(code_lines, full_path)
+
+    # Replace the fenced block with a Slidev snippet reference.
+    deletebufline('%', fence_open, fence_close)
+    append(fence_open - 1, '<<< @/snippets/' .. fname)
+
+    UpdateGhostText()
+    echo '[Slidev] snippet extracted → snippets/' .. fname
+enddef
+
+# Inline a <<< @/... snippet reference back as a fenced code block.
+# When bang is true the snippet file is deleted after inlining.
+export def SnippetInline(bang: bool)
+    var cur = line('.')
+    var lc  = getline(cur)
+
+    # Match both <<< @/path and <<< ./path forms.
+    var ref = lc->matchstr('^<<<\s\+\zs[^[:space:]].*')
+    if ref == ''
+        echohl WarningMsg
+        echo '[Slidev] current line is not a snippet reference (<<< @/... or <<< ./...)'
+        echohl None
+        return
+    endif
+
+    var snippet_path = ResolveSnippetRef(ref)
+    if snippet_path == '' || !filereadable(snippet_path)
+        echohl WarningMsg
+        echo '[Slidev] snippet file not found: ' .. ref
+        echohl None
+        return
+    endif
+
+    var lang        = ExtToLang(fnamemodify(snippet_path, ':e'))
+    var code_lines  = readfile(snippet_path)
+    var replacement = ['```' .. lang] + code_lines + ['```']
+
+    deletebufline('%', cur)
+    append(cur - 1, replacement)
+
+    if bang
+        delete(snippet_path)
+        echo '[Slidev] snippet inlined and ' .. fnamemodify(snippet_path, ':t') .. ' deleted'
+    else
+        echo '[Slidev] snippet inlined from ' .. fnamemodify(snippet_path, ':t')
+    endif
+
+    UpdateGhostText()
+enddef
+
 # ── Enable / Disable ──────────────────────────────────────────────────────────
 
 export def Disable()
@@ -436,6 +607,8 @@ export def Disable()
     silent! execute 'nunmap <buffer> <leader>R'
     silent! execute 'nunmap <buffer> <leader>i'
     silent! execute 'nunmap <buffer> <leader>z'
+    silent! execute 'nunmap <buffer> <leader>xe'
+    silent! execute 'nunmap <buffer> <leader>xi'
 
     # -buffer is required to delete buffer-local commands; without it
     # delcommand would look for (and fail to find) a global command.
@@ -443,6 +616,8 @@ export def Disable()
     silent! execute 'delcommand -buffer SlidevRefresh'
     silent! execute 'delcommand -buffer SlidevFocus'
     silent! execute 'delcommand -buffer SlidevDisable'
+    silent! execute 'delcommand -buffer SlidevSnippetExtract'
+    silent! execute 'delcommand -buffer SlidevSnippetInline'
 
     # Remove ghost-text annotations that prop_add() left on the separator lines.
     var buf = bufnr('%')
@@ -483,6 +658,8 @@ export def Setup()
     nnoremap <buffer> <leader>R <ScriptCmd>RunDev()<CR>
     nnoremap <buffer> <leader>i <ScriptCmd>Info()<CR>
     nnoremap <buffer> <leader>z <ScriptCmd>FocusSlide()<CR>
+    nnoremap <buffer> <leader>xe :SlidevSnippetExtract<Space>
+    nnoremap <buffer> <leader>xi <ScriptCmd>SnippetInline(false)<CR>
 
     # command! bodies are not inside this script's scope, so the autoload
     # prefix slidev# is required to reach the exported functions.
@@ -490,6 +667,8 @@ export def Setup()
     command! -buffer SlidevRefresh call slidev#UpdateGhostText()
     command! -buffer SlidevFocus call slidev#FocusSlide()
     command! -buffer SlidevDisable call slidev#Disable()
+    command! -buffer -nargs=? -complete=file SlidevSnippetExtract call slidev#SnippetExtract(<q-args>)
+    command! -buffer -bang SlidevSnippetInline call slidev#SnippetInline(<bang>0)
 
     b:slidev_active = true
 
