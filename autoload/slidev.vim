@@ -151,23 +151,31 @@ enddef
 
 # ── Ghost text ────────────────────────────────────────────────────────────────
 
-const PROP_TYPE = 'SlidevSlideNum'
+const PROP_TYPE         = 'SlidevSlideNum'
+const SNIPPET_PROP_TYPE = 'SlidevSnippetStatus'
 
 def EnsurePropType()
     # prop_type_add() errors if the type already exists, so guard with a check.
     if prop_type_get(PROP_TYPE) == {}
         prop_type_add(PROP_TYPE, {highlight: 'SlidevSlideNumHL'})
     endif
+    if prop_type_get(SNIPPET_PROP_TYPE) == {}
+        # The per-prop 'highlight' key in prop_add() overrides this default,
+        # so the type's highlight is only a fallback and is never actually used.
+        prop_type_add(SNIPPET_PROP_TYPE, {highlight: 'Comment'})
+    endif
 enddef
 
 export def UpdateGhostText()
-    var buf = bufnr('%')
+    var buf   = bufnr('%')
+    var last  = line('$')
     var slides = GetSlideLines()
-    var total = len(slides)
+    var total  = len(slides)
 
     # Wipe all existing annotations before redrawing so edits that add or
     # remove '---' lines don't leave stale slide numbers behind.
-    prop_remove({type: PROP_TYPE, bufnr: buf, all: true}, 1, line('$'))
+    prop_remove({type: PROP_TYPE,         bufnr: buf, all: true}, 1, last)
+    prop_remove({type: SNIPPET_PROP_TYPE, bufnr: buf, all: true}, 1, last)
 
     for i in range(total)
         # col 0 means the text is appended after the last character on the line.
@@ -176,6 +184,34 @@ export def UpdateGhostText()
             type:       PROP_TYPE,
             text:       $'  ⟨ slide {i + 1} / {total} ⟩',
             text_align: 'after',
+        })
+    endfor
+
+    # Annotate every <<< snippet-reference line with its file status.
+    for lnum in range(1, last)
+        var ref = getline(lnum)->matchstr('^<<<\s\+\zs[^[:space:]].*')
+        if ref == ''
+            continue
+        endif
+        var path = ResolveSnippetRef(ref)
+        var annot: string
+        var hl: string
+        if path == '' || !filereadable(path)
+            annot = '  ⟨ not found ⟩'
+            hl    = 'ErrorMsg'
+        elseif getfsize(path) <= 0
+            annot = '  ⟨ empty ⟩'
+            hl    = 'WarningMsg'
+        else
+            annot = '  ⟨ ok ⟩'
+            hl    = 'SlidevSlideNumHL'
+        endif
+        prop_add(lnum, 0, {
+            bufnr:      buf,
+            type:       SNIPPET_PROP_TYPE,
+            text:       annot,
+            text_align: 'after',
+            highlight:  hl,
         })
     endfor
 enddef
@@ -458,11 +494,10 @@ def ResolveSnippetRef(ref: string): string
                 return candidate
             endif
         endif
-        var candidate = md_dir .. '/' .. rel
-        return filereadable(candidate) ? candidate : ''
-    elseif ref =~# '^\.'
-        return md_dir .. '/' .. ref
+        var fallback = md_dir .. '/' .. rel
+        return filereadable(fallback) ? fallback : ''
     else
+        # Handles both './...' relative and bare paths.
         return md_dir .. '/' .. ref
     endif
 enddef
@@ -558,11 +593,11 @@ export def SnippetInline(bang: bool)
     var cur = line('.')
     var lc  = getline(cur)
 
-    # Match both <<< @/path and <<< ./path forms.
+    # Match <<< @/path, <<< ./path, and bare-path forms.
     var ref = lc->matchstr('^<<<\s\+\zs[^[:space:]].*')
     if ref == ''
         echohl WarningMsg
-        echo '[Slidev] current line is not a snippet reference (<<< @/... or <<< ./...)'
+        echo '[Slidev] current line is not a snippet reference (<<< @/..., <<< ./..., or bare path)'
         echohl None
         return
     endif
@@ -621,7 +656,8 @@ export def Disable()
 
     # Remove ghost-text annotations that prop_add() left on the separator lines.
     var buf = bufnr('%')
-    prop_remove({type: PROP_TYPE, bufnr: buf, all: true}, 1, line('$'))
+    prop_remove({type: PROP_TYPE,         bufnr: buf, all: true}, 1, line('$'))
+    prop_remove({type: SNIPPET_PROP_TYPE, bufnr: buf, all: true}, 1, line('$'))
 
     # Clear the autocmd that would otherwise re-run UpdateGhostText() on edits.
     autocmd! SlidevGhost * <buffer>

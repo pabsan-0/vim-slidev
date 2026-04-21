@@ -122,6 +122,16 @@ The snippet commands let you move code between these two forms.  The
 edited.  When `@/` references are read back (|:SlidevSnippetInline|) the
 project root (package.json directory) is also tried first.
 
+Each `<<<` reference line is annotated with ghost text showing the current
+status of the referenced file:
+
+    ⟨ ok ⟩          File exists and contains at least one byte.
+    ⟨ empty ⟩        File exists but has no content.
+    ⟨ not found ⟩    File cannot be read at the resolved path.
+
+The annotation is refreshed whenever the buffer is edited or saved (same
+trigger as the slide-number ghost text).
+
 *:SlidevSnippetExtract* [{file}]
     Extract the fenced code block that surrounds the cursor into a file
     inside `snippets/` and replace the block with a `<<< @/snippets/{file}`
