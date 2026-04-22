@@ -184,7 +184,7 @@ export def UpdateGhostText()
     var usable_width = wininfo.width - wininfo.textoff
 
     # Determine the target boundary: column 80 or window width
-    var target_col = min([79, usable_width])
+    var target_col = min([80, usable_width])
 
     for i in range(total)
         var lnum = slides[i]
