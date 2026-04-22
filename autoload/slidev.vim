@@ -392,11 +392,18 @@ enddef
 
 # Called by the <buffer> k mapping while focus mode is active.
 # On the first press from the slide's first line the cursor lands on the
-# closed fold above; on the next press (cursor already on a fold) focus exits.
+# closed fold above; on the next press (cursor already on a fold) focus exits
+# and the cursor is placed on the line just above the slide.
 def FocusMoveUp()
     if foldclosed(line('.')) >= 0
         # Cursor is on a closed fold — user is insisting past the boundary.
+        # Capture the target line *before* ExitFocus() removes the folds so
+        # the cursor ends up adjacent to the slide, not at the fold's first line.
+        var target = get(b:, 'slidev_focus_start', 1) - 1
         ExitFocus()
+        if target >= 1
+            cursor(target, 1)
+        endif
     else
         execute $'normal! {v:count1}k'
     endif
@@ -405,7 +412,11 @@ enddef
 # Mirror of FocusMoveUp() for downward movement.
 def FocusMoveDown()
     if foldclosed(line('.')) >= 0
+        var target = get(b:, 'slidev_focus_end', line('$')) + 1
         ExitFocus()
+        if target <= line('$')
+            cursor(target, 1)
+        endif
     else
         execute $'normal! {v:count1}j'
     endif
@@ -446,6 +457,8 @@ export def FocusSlide()
     endfor
 
     b:slidev_prev_foldmethod = &l:foldmethod
+    b:slidev_focus_start = slide_start
+    b:slidev_focus_end   = slide_end
     setlocal foldmethod=manual
     # zE clears any pre-existing folds before we create the two surrounding ones.
     normal! zE
