@@ -200,6 +200,11 @@ export def GoForward(count: number)
     cursor(ahead[min([count - 1, len(ahead) - 1])], 1)
     # Scroll the separator to the top so slide content is immediately visible.
     normal! zt
+    # Re-apply focus to the new slide when focus mode is active.
+    if get(b:, 'slidev_focus', false)
+        b:slidev_focus = false
+        FocusSlide()
+    endif
 enddef
 
 export def GoBackward(count: number)
@@ -212,6 +217,11 @@ export def GoBackward(count: number)
     # max(..., 0) prevents a negative index when count exceeds available slides.
     cursor(behind[max([len(behind) - count, 0])], 1)
     normal! zt
+    # Re-apply focus to the new slide when focus mode is active.
+    if get(b:, 'slidev_focus', false)
+        b:slidev_focus = false
+        FocusSlide()
+    endif
 enddef
 
 export def GoToSlide(num: number)
@@ -368,15 +378,42 @@ enddef
 
 # ── Single-slide focus ────────────────────────────────────────────────────────
 
+def ExitFocus()
+    execute $'setlocal foldmethod={get(b:, "slidev_prev_foldmethod", "manual")}'
+    # zE deletes all folds so the restored foldmethod starts from a clean
+    # slate (avoids leftover manual folds when switching to e.g. 'indent').
+    normal! zE
+    b:slidev_focus = false
+    # Remove the boundary-movement mappings installed when focus was entered.
+    silent! execute 'nunmap <buffer> k'
+    silent! execute 'nunmap <buffer> j'
+    echo '[Slidev] focus off'
+enddef
+
+# Called by the <buffer> k mapping while focus mode is active.
+# On the first press from the slide's first line the cursor lands on the
+# closed fold above; on the next press (cursor already on a fold) focus exits.
+def FocusMoveUp()
+    if foldclosed(line('.')) >= 0
+        # Cursor is on a closed fold — user is insisting past the boundary.
+        ExitFocus()
+    else
+        execute 'normal! ' .. v:count1 .. 'k'
+    endif
+enddef
+
+# Mirror of FocusMoveUp() for downward movement.
+def FocusMoveDown()
+    if foldclosed(line('.')) >= 0
+        ExitFocus()
+    else
+        execute 'normal! ' .. v:count1 .. 'j'
+    endif
+enddef
+
 export def FocusSlide()
     if get(b:, 'slidev_focus', false)
-        # Restore the foldmethod that was active before focus mode was entered.
-        execute $'setlocal foldmethod={get(b:, "slidev_prev_foldmethod", "manual")}'
-        # zE deletes all folds so the restored foldmethod starts from a clean
-        # slate (avoids leftover manual folds when switching to e.g. 'indent').
-        normal! zE
-        b:slidev_focus = false
-        echo '[Slidev] focus off'
+        ExitFocus()
         return
     endif
 
@@ -423,6 +460,10 @@ export def FocusSlide()
     endif
 
     b:slidev_focus = true
+    # Install boundary-movement mappings so the user can exit focus by
+    # pressing k/j a second time once the cursor is on a closed fold.
+    nnoremap <buffer> k <ScriptCmd>FocusMoveUp()<CR>
+    nnoremap <buffer> j <ScriptCmd>FocusMoveDown()<CR>
     normal! zt
     echo '[Slidev] focus on'
 enddef
@@ -441,6 +482,9 @@ export def Disable()
     silent! execute 'nunmap <buffer> <leader>R'
     silent! execute 'nunmap <buffer> <leader>i'
     silent! execute 'nunmap <buffer> <leader>z'
+    # These are only present when focus mode was active at disable time.
+    silent! execute 'nunmap <buffer> k'
+    silent! execute 'nunmap <buffer> j'
 
     # -buffer is required to delete buffer-local commands; without it
     # delcommand would look for (and fail to find) a global command.
