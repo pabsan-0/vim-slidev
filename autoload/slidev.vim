@@ -434,8 +434,9 @@ export def Disable()
     # correctly when written inline in a nunmap statement.  Wrapping them as
     # strings inside execute() is the reliable approach.  silent! absorbs the
     # error when a mapping does not exist (e.g. called on an un-setup buffer).
-    silent! execute 'nunmap <buffer> ]]'
-    silent! execute 'nunmap <buffer> [['
+    # FIXME No longer using [[ ]], should this be tweaked?
+    silent! execute 'nunmap <buffer> <C-p>'
+    silent! execute 'nunmap <buffer> <C-n>'
     silent! execute 'nunmap <buffer> <leader>s'
     silent! execute 'nunmap <buffer> <leader>a'
     silent! execute 'nunmap <buffer> <leader>D'
@@ -481,8 +482,8 @@ export def Setup()
 
     # <ScriptCmd> keeps the execution context inside this script so function
     # names resolve without a prefix; <Cmd> would require the full slidev# path.
-    nnoremap <buffer> ]] <ScriptCmd>GoForward(v:count1)<CR>
-    nnoremap <buffer> [[ <ScriptCmd>GoBackward(v:count1)<CR>
+    nnoremap <buffer> <C-n> <ScriptCmd>GoForward(v:count1)<CR>
+    nnoremap <buffer> <C-p> <ScriptCmd>GoBackward(v:count1)<CR>
     nnoremap <buffer> <leader>s :SlidevGoToSlideNum<Space>
     nnoremap <buffer> <leader>a <ScriptCmd>AddSlide()<CR>
     nnoremap <buffer> <leader>D <ScriptCmd>DeleteSlide()<CR>
