@@ -175,7 +175,7 @@ export def UpdateGhostText()
     # remove '---' lines don't leave stale slide numbers behind.
     prop_remove({type: PROP_TYPE, bufnr: buf, all: true}, 1, line('$'))
 
-    # Get usabe term width removing gutter
+    # Get the usable window width excluding the gutter.
     var winid = bufwinid(buf)
     if winid == -1
         winid = win_getid() # Fallback if buffer isn't active
