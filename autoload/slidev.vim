@@ -430,11 +430,9 @@ enddef
 # ── Enable / Disable ──────────────────────────────────────────────────────────
 
 export def Disable()
-    # In Vim9script, special key sequences like ]] and [[ are not parsed
-    # correctly when written inline in a nunmap statement.  Wrapping them as
-    # strings inside execute() is the reliable approach.  silent! absorbs the
-    # error when a mapping does not exist (e.g. called on an un-setup buffer).
-    # FIXME No longer using [[ ]], should this be tweaked?
+    # Wrap key sequences as strings inside execute() for reliable parsing in
+    # Vim9script.  silent! absorbs the error when a mapping does not exist
+    # (e.g. called on an un-setup buffer).
     silent! execute 'nunmap <buffer> <C-p>'
     silent! execute 'nunmap <buffer> <C-n>'
     silent! execute 'nunmap <buffer> <leader>s'
