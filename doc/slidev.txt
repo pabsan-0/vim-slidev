@@ -57,8 +57,8 @@ are always skipped regardless of strictness.
 
 All mappings are buffer-local and only active in detected Slidev files.
 
-    ]]          Move to the next slide separator (supports count: 5]])
-    [[          Move to the previous slide separator (supports count: 3[[)
+    <C-n>       Move to the next slide separator (supports count: 5<C-n>)
+    <C-p>       Move to the previous slide separator (supports count: 3<C-p>)
     <leader>s   Open the command line pre-filled with :SlidevGoToSlideNum
     <leader>a   Add a new slide after the current one
     <leader>D   Delete the current slide
