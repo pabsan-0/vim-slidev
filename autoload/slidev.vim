@@ -398,7 +398,7 @@ def FocusMoveUp()
         # Cursor is on a closed fold — user is insisting past the boundary.
         ExitFocus()
     else
-        execute 'normal! ' .. v:count1 .. 'k'
+        execute $'normal! {v:count1}k'
     endif
 enddef
 
@@ -407,7 +407,7 @@ def FocusMoveDown()
     if foldclosed(line('.')) >= 0
         ExitFocus()
     else
-        execute 'normal! ' .. v:count1 .. 'j'
+        execute $'normal! {v:count1}j'
     endif
 enddef
 
