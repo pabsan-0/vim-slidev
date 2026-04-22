@@ -175,12 +175,38 @@ export def UpdateGhostText()
     # remove '---' lines don't leave stale slide numbers behind.
     prop_remove({type: PROP_TYPE, bufnr: buf, all: true}, 1, line('$'))
 
+    # Get the usable window width excluding the gutter.
+    var winid = bufwinid(buf)
+    if winid == -1
+        winid = win_getid() # Fallback if buffer isn't active
+    endif
+    var wininfo = getwininfo(winid)[0]
+    var usable_width = wininfo.width - wininfo.textoff
+
+    # Determine the target boundary: column 80 or window width
+    var target_col = min([80, usable_width])
+
     for i in range(total)
-        # col 0 means the text is appended after the last character on the line.
-        prop_add(slides[i], 0, {
+        var lnum = slides[i]
+
+        # Calculate visual widths
+        var line_len = strdisplaywidth(getline(lnum))
+        var msg = $' {i + 1} / {total} '
+        var msg_len = strdisplaywidth(msg)
+        var pre = ' '
+        var pre_len = strdisplaywidth(pre)
+
+        # Calculate the padding needed to push the text to the target column
+        var gap = target_col - line_len - pre_len -  msg_len
+
+        # If there's a gap, fill it with a separating char
+        var text_to_show = pre .. (gap > 0 ? repeat('-', gap) .. msg : msg)
+
+        # col 0 means the text is appended after the last character on the line
+        prop_add(lnum, 0, {
             bufnr:      buf,
             type:       PROP_TYPE,
-            text:       $'  ⟨ slide {i + 1} / {total} ⟩',
+            text:       text_to_show,
             text_align: 'after',
         })
     endfor
@@ -503,6 +529,6 @@ export def Setup()
     # (e.g. via :SlidevEnable) does not register duplicate autocmds.
     augroup SlidevGhost
         autocmd! * <buffer>
-        autocmd TextChanged,TextChangedI,BufWritePost <buffer> slidev#UpdateGhostText()
+        autocmd TextChanged,TextChangedI,BufWritePost,VimResized <buffer> slidev#UpdateGhostText()
     augroup END
 enddef
