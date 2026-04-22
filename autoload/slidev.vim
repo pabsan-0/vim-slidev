@@ -165,6 +165,12 @@ export def UpdateGhostText()
     var slides = GetSlideLines()
     var total = len(slides)
 
+    # Join the text-property changes into the preceding undo block so that
+    # pressing u does not first jump the cursor to line 1 of the file.
+    # silent! absorbs E790 when there is nothing to join with (e.g. on the
+    # very first edit or immediately after an undo).
+    silent! undojoin
+
     # Wipe all existing annotations before redrawing so edits that add or
     # remove '---' lines don't leave stale slide numbers behind.
     prop_remove({type: PROP_TYPE, bufnr: buf, all: true}, 1, line('$'))
