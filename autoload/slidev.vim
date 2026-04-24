@@ -188,6 +188,7 @@ export def UpdateGhostText()
     endfor
 
     # Annotate every <<< snippet-reference line with its file status.
+    # Nothing is shown when the file is readable and non-empty (the happy path).
     for lnum in range(1, last)
         var ref = getline(lnum)->matchstr('^<<<\s\+\zs[^[:space:]].*')
         if ref == ''
@@ -197,14 +198,13 @@ export def UpdateGhostText()
         var annot: string
         var hl: string
         if path == '' || !filereadable(path)
-            annot = '  ⟨ not found ⟩'
+            annot = '  -- FILE NOT FOUND'
             hl    = 'ErrorMsg'
         elseif getfsize(path) <= 0
-            annot = '  ⟨ empty ⟩'
+            annot = '  -- FILE IS EMPTY'
             hl    = 'WarningMsg'
         else
-            annot = '  ⟨ ok ⟩'
-            hl    = 'SlidevSlideNumHL'
+            continue
         endif
         prop_add(lnum, 0, {
             bufnr:      buf,
@@ -503,8 +503,16 @@ def ResolveSnippetRef(ref: string): string
 enddef
 
 # Extract the fenced code block the cursor is in (or on its delimiters) to a
-# file under snippets/ and replace the block with a <<< @/snippets/<file>
-# reference.  Accepts an optional filename; when omitted the user is prompted.
+# file whose path is given by a comment immediately above the opening fence.
+# Supported comment formats (path is relative to the .md file):
+#   <!-- snippets/foo.c -->   (HTML / Markdown comment)
+#   <!-- foo.c -->
+#   # snippets/foo.c          (shell / Python / etc.)
+#   // snippets/foo.c         (C-style)
+# If no such comment is found, the user is told to add one and the function
+# returns early.  If the target path does not yet exist the user is offered
+# the chance to create it (with both the .md path and the full target path
+# shown), otherwise the extraction is aborted.
 export def SnippetExtract(fname_arg: string = '')
     var cur    = line('.')
     var total  = line('$')
@@ -556,39 +564,83 @@ export def SnippetExtract(fname_arg: string = '')
         return
     endif
 
+    # Determine the target filename.
+    # Priority: explicit argument > comment on the line immediately above the fence.
+    var fname           = fname_arg
+    var comment_provided = false
+    if fname == '' && fence_open > 1
+        var above = getline(fence_open - 1)
+        # HTML/Markdown comment: <!-- path -->
+        var m = above->matchstr('<!--\s*\zs[^[:space:]>][^>[:space:]]*\ze\s*-->')
+        if m != ''
+            fname            = trim(m)
+            comment_provided = true
+        else
+            # Shell/Python (#) or C-style (//) single-line comment
+            m = above->matchstr('^\s*\%(#\|//\)\s*\zs\S.*')
+            if m != ''
+                fname            = trim(m)
+                comment_provided = true
+            endif
+        endif
+    endif
+
+    if fname == ''
+        echohl WarningMsg
+        echo '[Slidev] no snippet filename found.'
+        echo '         Add a comment on the line immediately above the fence, e.g.:'
+        echo '           <!-- snippets/example.c -->'
+        echo '           # snippets/example.c'
+        echo '           // snippets/example.c'
+        echohl None
+        return
+    endif
+
+    # Resolve the target path relative to the .md file.
+    var md_dir    = expand('%:p:h')
+    var full_path = md_dir .. '/' .. fname
+
+    # If the file does not exist yet, ask before creating it.
+    if !filereadable(full_path)
+        var md_path_display = expand('%:p')
+        echo '[Slidev] Snippet file does not exist yet.'
+        echo '         Presentation : ' .. md_path_display
+        echo '         Snippet      : ' .. full_path
+        var ans = input('Create it? [y/N] ')
+        echo ''
+        if ans !~? '^y'
+            echo '[Slidev] extraction cancelled'
+            return
+        endif
+        # Ensure any subdirectories exist.
+        var target_dir = fnamemodify(full_path, ':h')
+        if !isdirectory(target_dir)
+            mkdir(target_dir, 'p')
+        endif
+    endif
+
     # Extract language specifier from the opening fence line.
     var lang = getline(fence_open)->matchstr('^' .. fence_pat .. '\s*\zs\S*')
 
     # Lines between the fences (exclusive) are the snippet content.
     var code_lines = getline(fence_open + 1, fence_close - 1)
 
-    # Determine the filename: use the argument, or ask the user.
-    var fname = fname_arg
-    if fname == ''
-        fname = input('Snippet filename: ')
-    endif
-    if fname == ''
-        return
-    endif
-
-    # Write the snippet to snippets/<fname>, relative to the .md file.
-    var snippets_dir = expand('%:p:h') .. '/snippets'
-    if !isdirectory(snippets_dir)
-        mkdir(snippets_dir, 'p')
-    endif
-    var full_path = snippets_dir .. '/' .. fname
     writefile(code_lines, full_path)
 
-    # Replace the fenced block with a Slidev snippet reference.
-    deletebufline('%', fence_open, fence_close)
-    append(fence_open - 1, '<<< @/snippets/' .. fname)
+    # Replace the fenced block (and the comment above it, if that comment was
+    # the source of the filename) with a <<< reference.
+    var delete_from = (comment_provided && fname_arg == '') ? fence_open - 1 : fence_open
+    deletebufline('%', delete_from, fence_close)
+    append(delete_from - 1, '<<< @/' .. fname)
 
     UpdateGhostText()
-    echo '[Slidev] snippet extracted → snippets/' .. fname
+    echo '[Slidev] snippet extracted → ' .. fname
 enddef
 
 # Inline a <<< @/... snippet reference back as a fenced code block.
-# When bang is true the snippet file is deleted after inlining.
+# A comment with the original <<< reference is inserted above the block so
+# the extraction can easily be re-run to revert the change.
+# When bang is true the snippet file is also deleted after inlining.
 export def SnippetInline(bang: bool)
     var cur = line('.')
     var lc  = getline(cur)
@@ -612,7 +664,9 @@ export def SnippetInline(bang: bool)
 
     var lang        = ExtToLang(fnamemodify(snippet_path, ':e'))
     var code_lines  = readfile(snippet_path)
-    var replacement = ['```' .. lang] + code_lines + ['```']
+    # Prepend a comment with the original <<< reference so SnippetExtract can
+    # read the path back without needing any additional user input.
+    var replacement = ['<!-- ' .. ref .. ' -->', '```' .. lang] + code_lines + ['```']
 
     deletebufline('%', cur)
     append(cur - 1, replacement)
@@ -694,7 +748,7 @@ export def Setup()
     nnoremap <buffer> <leader>R <ScriptCmd>RunDev()<CR>
     nnoremap <buffer> <leader>i <ScriptCmd>Info()<CR>
     nnoremap <buffer> <leader>z <ScriptCmd>FocusSlide()<CR>
-    nnoremap <buffer> <leader>xe :SlidevSnippetExtract<Space>
+    nnoremap <buffer> <leader>xe <ScriptCmd>SnippetExtract()<CR>
     nnoremap <buffer> <leader>xi <ScriptCmd>SnippetInline(false)<CR>
 
     # command! bodies are not inside this script's scope, so the autoload
