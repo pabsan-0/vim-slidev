@@ -565,33 +565,26 @@ export def SnippetExtract(fname_arg: string = '')
     endif
 
     # Determine the target filename.
-    # Priority: explicit argument > comment on the line immediately above the fence.
-    var fname           = fname_arg
+    # Priority: explicit argument > HTML comment on the line immediately above the fence.
+    # Only HTML comments are supported because other styles (# ..., // ...)
+    # would render as visible plaintext in the Slidev presentation.
+    var fname            = fname_arg
     var comment_provided = false
     if fname == '' && fence_open > 1
         var above = getline(fence_open - 1)
-        # HTML/Markdown comment: <!-- path -->
+        # HTML comment: <!-- path -->
         var m = above->matchstr('<!--\s*\zs[^[:space:]>][^>[:space:]]*\ze\s*-->')
         if m != ''
             fname            = trim(m)
             comment_provided = true
-        else
-            # Shell/Python (#) or C-style (//) single-line comment
-            m = above->matchstr('^\s*\%(#\|//\)\s*\zs\S.*')
-            if m != ''
-                fname            = trim(m)
-                comment_provided = true
-            endif
         endif
     endif
 
     if fname == ''
         echohl WarningMsg
         echo '[Slidev] no snippet filename found.'
-        echo '         Add a comment on the line immediately above the fence, e.g.:'
+        echo '         Add an HTML comment on the line immediately above the fence, e.g.:'
         echo '           <!-- snippets/example.c -->'
-        echo '           # snippets/example.c'
-        echo '           // snippets/example.c'
         echohl None
         return
     endif

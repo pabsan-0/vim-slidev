@@ -136,11 +136,10 @@ as the slide-number ghost text).
     Extract the fenced code block that surrounds the cursor into a file and
     replace the block with a `<<< @/{path}` reference.
 
-    The target path is read from a comment on the line immediately above the
-    opening fence.  Supported comment styles: >
+    The target path is read from an HTML comment on the line immediately above
+    the opening fence (only HTML comments are supported — other styles such as
+    `#` or `//` would render as visible text in the presentation): >
         <!-- snippets/example.c -->
-        # snippets/example.c
-        // snippets/example.c
 <
     If no such comment is present, the command prints a reminder and exits.
     If the target file does not yet exist, the command displays the full path
