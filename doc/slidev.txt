@@ -8,6 +8,7 @@ CONTENTS                                                        *slidev-contents
     3. Configuration ............. |slidev-configuration|
     4. Mappings .................. |slidev-mappings|
     5. Commands .................. |slidev-commands|
+    6. Snippets .................. |slidev-snippets|
 
 ==============================================================================
 1. INTRODUCTION                                             *slidev-introduction*
@@ -65,6 +66,8 @@ All mappings are buffer-local and only active in detected Slidev files.
     <leader>R   Run `pnpm dev %` in a terminal split
     <leader>i   Print slide position and plugin variable values (:SlidevInfo)
     <leader>z   Toggle single-slide focus view (:SlidevFocus)
+    <leader>xe  Extract the fenced block to file (:SlidevSnippetExtract)
+    <leader>xi  Inline the snippet reference under the cursor (:SlidevSnippetInline)
 
 ==============================================================================
 5. COMMANDS                                                     *slidev-commands*
@@ -99,6 +102,60 @@ The following commands are buffer-local and only available after detection
 *:SlidevDisable*
     Deactivate all Slidev features for the current buffer (mappings, ghost
     text, commands, autocmds). Use |:SlidevEnable| to reactivate.
+
+==============================================================================
+6. SNIPPETS                                                     *slidev-snippets*
+
+Slidev supports two ways to embed code in a slide:
+
+    Inline fenced block: >
+        ```c
+        int main() { return 0; }
+        ```
+<
+    External snippet reference: >
+        <<< @/snippets/example.c
+<
+
+The snippet commands let you move code between these two forms.  The target
+path is always resolved relative to the .md file being edited.  When `@/`
+references are read back (|:SlidevSnippetInline|) the project root
+(package.json directory) is also tried first.
+
+Each `<<<` reference line is annotated with ghost text when the referenced
+file has a problem:
+
+    -- FILE IS EMPTY     File exists but has no content (WarningMsg colour).
+    -- FILE NOT FOUND    File cannot be read at the resolved path (ErrorMsg colour).
+
+No annotation is shown when the file is readable and non-empty.  The
+annotation is refreshed whenever the buffer is edited or saved (same trigger
+as the slide-number ghost text).
+
+*:SlidevSnippetExtract*
+    Extract the fenced code block that surrounds the cursor into a file and
+    replace the block with a `<<< @/{path}` reference.
+
+    The target path is read from an HTML comment on the line immediately above
+    the opening fence (only HTML comments are supported — other styles such as
+    `#` or `//` would render as visible text in the presentation): >
+        <!-- snippets/example.c -->
+<
+    If no such comment is present, the command prints a reminder and exits.
+    If the target file does not yet exist, the command displays the full path
+    of both the .md file and the new snippet file and asks for confirmation
+    before creating it (including any intermediate directories).
+    Also available as |<leader>xe|.
+
+*:SlidevSnippetInline*[!]
+    Replace the `<<<` snippet reference on the current line with the
+    contents of the referenced file as a fenced code block.  A comment
+    containing the original `<<<` reference is inserted on the line
+    immediately above the block so that |:SlidevSnippetExtract| can revert
+    the change without any additional input.  The language identifier is
+    inferred from the file extension.
+    With `!` the snippet file is also deleted from disk after inlining.
+    Also available as |<leader>xi|.
 
 ==============================================================================
 vim:ft=help:tw=78:
