@@ -66,6 +66,12 @@ All mappings are buffer-local and only active in detected Slidev files.
     <leader>i   Print slide position and plugin variable values (:SlidevInfo)
     <leader>z   Toggle single-slide focus view (:SlidevFocus)
 
+In focus mode two extra buffer-local mappings are active:
+
+    k           Move up; when cursor reaches the closed fold above the slide,
+                pressing k again exits focus mode.
+    j           Move down; same boundary behaviour as k.
+
 ==============================================================================
 5. COMMANDS                                                     *slidev-commands*
 
@@ -93,6 +99,9 @@ The following commands are buffer-local and only available after detection
 *:SlidevFocus*
     Toggle single-slide focus view. When active, all content outside the
     current slide is folded away so only the current slide is visible.
+    While focused, <C-n>/<C-p> navigate to the next/previous slide and
+    immediately re-apply focus there. Pressing k/j into the closed fold
+    above/below the slide and pressing the key once more exits focus mode.
     Run again (or use |zR|) to unfold everything. The previous foldmethod is
     restored when focus is toggled off.
 
