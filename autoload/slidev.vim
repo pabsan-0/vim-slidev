@@ -391,15 +391,18 @@ def ExitFocus()
 enddef
 
 # Called by the <buffer> k mapping while focus mode is active.
-# On the first press from the slide's first line the cursor lands on the
-# closed fold above; on the next press (cursor already on a fold) focus exits
-# and the cursor is placed on the line just above the slide.
+# While inside the slide the cursor moves normally.  Once the cursor is on
+# the *upper* closed fold (line < slide_start) a second k exits focus and
+# places the cursor just above the slide.  Pressing j from the upper fold
+# just executes a normal j (re-entering the slide) — no exit.
 def FocusMoveUp()
-    if foldclosed(line('.')) >= 0
-        # Cursor is on a closed fold — user is insisting past the boundary.
+    var cur = line('.')
+    var slide_start = get(b:, 'slidev_focus_start', 1)
+    if foldclosed(cur) >= 0 && cur < slide_start
+        # Cursor is on the upper closed fold — user is insisting upward.
         # Capture the target line *before* ExitFocus() removes the folds so
         # the cursor ends up adjacent to the slide, not at the fold's first line.
-        var target = get(b:, 'slidev_focus_start', 1) - 1
+        var target = slide_start - 1
         ExitFocus()
         if target >= 1
             cursor(target, 1)
@@ -410,9 +413,13 @@ def FocusMoveUp()
 enddef
 
 # Mirror of FocusMoveUp() for downward movement.
+# Exits focus only when the cursor is on the *lower* closed fold (line >
+# slide_end).  Pressing k from the lower fold re-enters the slide normally.
 def FocusMoveDown()
-    if foldclosed(line('.')) >= 0
-        var target = get(b:, 'slidev_focus_end', line('$')) + 1
+    var cur = line('.')
+    var slide_end = get(b:, 'slidev_focus_end', line('$'))
+    if foldclosed(cur) >= 0 && cur > slide_end
+        var target = slide_end + 1
         ExitFocus()
         if target <= line('$')
             cursor(target, 1)
