@@ -188,6 +188,17 @@ enddef
 
 # ── Navigation ────────────────────────────────────────────────────────────────
 
+def HandleJumpFocus(jump_count: number, key: string)
+    # Execute the raw jump command with the user's count
+    execute $'normal! {jump_count}{key}'
+
+    # If the jump kept us in the presentation and focus is active, re-focus the new slide
+    if get(b:, 'slidev_focus', false) == true
+        b:slidev_focus = false
+        FocusSlide()
+    endif
+enddef
+
 export def GoForward(count: number)
     var slides = GetSlideLines()
     var cur = line('.')
@@ -195,6 +206,10 @@ export def GoForward(count: number)
     if empty(ahead)
         return
     endif
+
+    # Add current take-off location to the jump list
+    normal! m`
+
     # Clamp so a count larger than the number of remaining slides lands on the
     # last one rather than indexing out of bounds.
     cursor(ahead[min([count - 1, len(ahead) - 1])], 1)
@@ -214,6 +229,10 @@ export def GoBackward(count: number)
     if empty(behind)
         return
     endif
+
+    # Add current take-off location to the jump list
+    normal! m`
+
     # max(..., 0) prevents a negative index when count exceeds available slides.
     cursor(behind[max([len(behind) - count, 0])], 1)
     normal! zt
@@ -231,8 +250,20 @@ export def GoToSlide(num: number)
         echo $'SlidevGoToSlideNum: slide {num} not found (presentation has {total} slides)'
         return
     endif
-    # slides[] is 0-based; slide numbers shown to the user are 1-based.
-    cursor(slides[num - 1], 1)
+
+    # Add current take-off location to the jump list
+    normal! m`
+
+    if get(b:, 'slidev_focus') == false
+        # slides[] is 0-based; slide numbers shown to the user are 1-based.
+        cursor(slides[num - 1], 1)
+    else
+        # Workaround to jump while focus mode enabled
+        silent! ExitFocus()
+        cursor(slides[num - 1], 1)
+        silent! FocusSlide()
+    endif
+
     normal! zt
 enddef
 
@@ -387,6 +418,7 @@ def ExitFocus()
     # Remove the boundary-movement mappings installed when focus was entered.
     silent! execute 'nunmap <buffer> k'
     silent! execute 'nunmap <buffer> j'
+    normal! zt
     echo '[Slidev] focus off'
 enddef
 
@@ -496,6 +528,8 @@ export def Disable()
     # (e.g. called on an un-setup buffer).
     silent! execute 'nunmap <buffer> <C-p>'
     silent! execute 'nunmap <buffer> <C-n>'
+    silent! execute 'nunmap <buffer> <C-o>'
+    silent! execute 'nunmap <buffer> <C-i>'
     silent! execute 'nunmap <buffer> <leader>s'
     silent! execute 'nunmap <buffer> <leader>a'
     silent! execute 'nunmap <buffer> <leader>D'
@@ -546,6 +580,12 @@ export def Setup()
     # names resolve without a prefix; <Cmd> would require the full slidev# path.
     nnoremap <buffer> <C-n> <ScriptCmd>GoForward(v:count1)<CR>
     nnoremap <buffer> <C-p> <ScriptCmd>GoBackward(v:count1)<CR>
+
+    # Override jump list keys to maintain focus mode if enabled
+    nnoremap <buffer> <C-o> <ScriptCmd>HandleJumpFocus(v:count1, "\<C-o>")<CR>
+    nnoremap <buffer> <C-i> <ScriptCmd>HandleJumpFocus(v:count1, "\<C-i>")<CR>
+
+    # Generic utils
     nnoremap <buffer> <leader>s :SlidevGoToSlideNum<Space>
     nnoremap <buffer> <leader>a <ScriptCmd>AddSlide()<CR>
     nnoremap <buffer> <leader>D <ScriptCmd>DeleteSlide()<CR>
