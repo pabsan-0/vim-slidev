@@ -5,6 +5,14 @@ if !exists('g:slidev_strictness')
     g:slidev_strictness = 3
 endif
 
+if !exists('g:slidev_image_previewer')
+    g:slidev_image_previewer = 'chafa'
+endif
+
+if !exists('g:slidev_chafa_opts')
+    g:slidev_chafa_opts = ''
+endif
+
 # Common markdown filenames that are documentation, not slidev presentations.
 # Lowercased so comparisons in Detect() are case-insensitive.
 if !exists('g:slidev_ignored_names')

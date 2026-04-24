@@ -52,6 +52,18 @@ are always skipped regardless of strictness.
         g:slidev_ignored_names = ['readme.md']
 <
 
+*g:slidev_image_previewer*
+    Executable used to render images inside the preview popup.
+    Default: 'chafa'
+
+*g:slidev_chafa_opts*
+    Extra command-line options passed to |g:slidev_image_previewer|.
+    Default: ''
+
+    Example: >
+        g:slidev_chafa_opts = '--size 80x40'
+<
+
 ==============================================================================
 4. MAPPINGS                                                     *slidev-mappings*
 
@@ -65,6 +77,8 @@ All mappings are buffer-local and only active in detected Slidev files.
     <leader>R   Run `pnpm dev %` in a terminal split
     <leader>i   Print slide position and plugin variable values (:SlidevInfo)
     <leader>z   Toggle single-slide focus view (:SlidevFocus)
+    <leader>p   Preview images in the current slide (:SlidevPreviewImages)
+                Press n / p to cycle between images, q / <Esc> / <CR> to close.
 
 ==============================================================================
 5. COMMANDS                                                     *slidev-commands*
@@ -99,6 +113,20 @@ The following commands are buffer-local and only available after detection
 *:SlidevDisable*
     Deactivate all Slidev features for the current buffer (mappings, ghost
     text, commands, autocmds). Use |:SlidevEnable| to reactivate.
+
+*:SlidevPreviewImages*
+    Render images referenced in the current slide using the configured
+    |g:slidev_image_previewer| backend and display them in a centered floating
+    popup. Images are extracted from Markdown `![alt](path)` syntax, HTML
+    `<img src="...">` tags, and YAML `background:` keys. Paths are resolved
+    relative to the current file's directory, with a fallback to a `public/`
+    subdirectory alongside it (standard Slidev asset layout). URL images
+    (http/https) are silently skipped.
+
+    Inside the popup:
+        n       Next image
+        p / N   Previous image
+        q / <Esc> / <CR>   Close popup
 
 ==============================================================================
 vim:ft=help:tw=78:

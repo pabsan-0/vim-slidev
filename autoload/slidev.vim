@@ -453,6 +453,165 @@ export def FocusSlide()
     echo '[Slidev] focus on'
 enddef
 
+# ── Image preview ─────────────────────────────────────────────────────────────
+
+var preview_images:   list<string> = []
+var preview_index:    number       = 0
+var preview_popup_id: number       = 0
+
+def GetCurrentSlideRange(): list<number>
+    var slides = GetSlideLines()
+    if empty(slides)
+        return [0, 0]
+    endif
+    var cur = line('.')
+    var slide_start = 0
+    var slide_end = line('$')
+    for lnum in slides
+        if lnum <= cur
+            slide_start = lnum
+        endif
+    endfor
+    if slide_start == 0
+        return [0, 0]
+    endif
+    for lnum in slides
+        if lnum > slide_start
+            slide_end = lnum - 1
+            break
+        endif
+    endfor
+    return [slide_start, slide_end]
+enddef
+
+def ExtractSlideImages(start: number, end: number): list<string>
+    var images: list<string> = []
+    for lnum in range(start, end)
+        var ln = getline(lnum)
+        # Markdown image: ![alt](path)
+        var m = matchstr(ln, '!\[.\{-}\](\zs.\{-}\ze)')
+        if !empty(m)
+            images->add(m)
+        endif
+        # HTML <img src="..."> or <img src='...'>
+        m = matchstr(ln, '<img[^>]*\ssrc=["' .. "'" .. ']\zs[^"' .. "'" .. ']*\ze')
+        if !empty(m)
+            images->add(m)
+        endif
+        # YAML background: key
+        m = matchstr(ln, '^background:\s*\zs\S\+')
+        if !empty(m)
+            images->add(m)
+        endif
+    endfor
+    return images
+enddef
+
+def ResolveImagePath(raw: string): string
+    if raw =~# '^https\?://'
+        return raw
+    endif
+    var base = expand('%:p:h')
+    var p = base .. '/' .. raw
+    if filereadable(p)
+        return p
+    endif
+    p = base .. '/public/' .. raw
+    if filereadable(p)
+        return p
+    endif
+    return ''
+enddef
+
+def RenderImage(path: string): list<string>
+    var opts = get(g:, 'slidev_chafa_opts', '')
+    var cmd = g:slidev_image_previewer
+        .. (empty(opts) ? '' : ' ' .. opts)
+        .. ' ' .. shellescape(path)
+    return systemlist(cmd)
+enddef
+
+def CyclePreviewIndex(delta: number)
+    preview_index = (preview_index + delta + len(preview_images)) % len(preview_images)
+enddef
+
+def PopupFilterCb(winid: number, key: string): bool
+    if key ==# 'n'
+        CyclePreviewIndex(1)
+        popup_close(winid)
+        OpenPreviewPopup()
+        return true
+    elseif key ==# 'p' || key ==# 'N'
+        CyclePreviewIndex(-1)
+        popup_close(winid)
+        OpenPreviewPopup()
+        return true
+    elseif key ==# 'q' || key ==# "\<Esc>" || key ==# "\<CR>"
+        popup_close(winid)
+        return true
+    endif
+    return false
+enddef
+
+def OpenPreviewPopup()
+    var path = preview_images[preview_index]
+    var rendered = RenderImage(path)
+    var total = len(preview_images)
+    var fname = fnamemodify(path, ':t')
+    var title = $'  Image ({preview_index + 1}/{total}): {fname}  '
+    rendered->insert(title, 0)
+    preview_popup_id = popup_create(rendered, {
+        border:    [],
+        padding:   [0, 1, 0, 1],
+        maxwidth:  &columns - 4,
+        maxheight: &lines - 6,
+        pos:       'center',
+        zindex:    200,
+        mapping:   false,
+        filter:    PopupFilterCb,
+    })
+enddef
+
+export def PreviewImages()
+    var range = GetCurrentSlideRange()
+    if range[0] == 0
+        echo '[Slidev] cursor is not inside a slide'
+        return
+    endif
+
+    var raw_images = ExtractSlideImages(range[0], range[1])
+
+    var resolved: list<string> = []
+    for raw in raw_images
+        var path = ResolveImagePath(raw)
+        if path =~# '^https\?://'
+            # URL — skip silently
+        elseif empty(path)
+            echohl WarningMsg
+            echo $'[Slidev] image not found: {raw}'
+            echohl None
+        else
+            resolved->add(path)
+        endif
+    endfor
+
+    if empty(resolved)
+        echo '[Slidev] No previewable images found in current slide'
+        return
+    endif
+
+    if !executable(g:slidev_image_previewer)
+        echohl WarningMsg
+        echo $'[Slidev] image previewer not found: {g:slidev_image_previewer}'
+        echohl None
+        return
+    endif
+
+    preview_images = resolved
+    preview_index = 0
+    OpenPreviewPopup()
+enddef
+
 # ── Enable / Disable ──────────────────────────────────────────────────────────
 
 export def Disable()
@@ -467,6 +626,7 @@ export def Disable()
     silent! execute 'nunmap <buffer> <leader>R'
     silent! execute 'nunmap <buffer> <leader>i'
     silent! execute 'nunmap <buffer> <leader>z'
+    silent! execute 'nunmap <buffer> <leader>p'
 
     # -buffer is required to delete buffer-local commands; without it
     # delcommand would look for (and fail to find) a global command.
@@ -474,6 +634,7 @@ export def Disable()
     silent! execute 'delcommand -buffer SlidevRefresh'
     silent! execute 'delcommand -buffer SlidevFocus'
     silent! execute 'delcommand -buffer SlidevDisable'
+    silent! execute 'delcommand -buffer SlidevPreviewImages'
 
     # Remove ghost-text annotations that prop_add() left on the separator lines.
     var buf = bufnr('%')
@@ -514,6 +675,7 @@ export def Setup()
     nnoremap <buffer> <leader>R <ScriptCmd>RunDev()<CR>
     nnoremap <buffer> <leader>i <ScriptCmd>Info()<CR>
     nnoremap <buffer> <leader>z <ScriptCmd>FocusSlide()<CR>
+    nnoremap <buffer> <leader>p <ScriptCmd>PreviewImages()<CR>
 
     # command! bodies are not inside this script's scope, so the autoload
     # prefix slidev# is required to reach the exported functions.
@@ -521,6 +683,7 @@ export def Setup()
     command! -buffer SlidevRefresh call slidev#UpdateGhostText()
     command! -buffer SlidevFocus call slidev#FocusSlide()
     command! -buffer SlidevDisable call slidev#Disable()
+    command! -buffer SlidevPreviewImages call slidev#PreviewImages()
 
     b:slidev_active = true
 
