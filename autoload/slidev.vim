@@ -424,6 +424,35 @@ export def DigestLinks()
 
     var content_lines: list<string> = getline(slide_start + 1, slide_end)
 
+    # ── Detect and strip trailing presenter notes (HTML comment block) ────────
+    # In Slidev an HTML comment at the bottom of a slide is a presenter note.
+    # The reference list must be inserted *above* these notes.
+    var presenter_notes: list<string> = []
+
+    # Find last non-blank line.
+    var j = len(content_lines) - 1
+    while j >= 0 && content_lines[j] =~# '^\s*$'
+        j -= 1
+    endwhile
+
+    # If the last non-blank line closes a comment, scan backward for its opener.
+    if j >= 0 && content_lines[j] =~# '-->\s*$'
+        var k = j
+        while k >= 0
+            if content_lines[k] =~# '<!--'
+                if k > 0
+                    presenter_notes = content_lines[k :]
+                    content_lines   = content_lines[0 : k - 1]
+                else
+                    presenter_notes = copy(content_lines)
+                    content_lines   = []
+                endif
+                break
+            endif
+            k -= 1
+        endwhile
+    endif
+
     # ── Parse existing definition block ───────────────────────────────────────
     # Scan backwards for lines matching [N]: url (with optional blank lines).
     var old_defs: dict<string> = {}
@@ -452,23 +481,28 @@ export def DigestLinks()
         while strip_from > 0 && content_lines[strip_from - 1] =~# '^\s*$'
             strip_from -= 1
         endwhile
-        if strip_from > 0
-            body_lines = content_lines[0 : strip_from - 1]
-        else
-            body_lines = []
-        endif
+        body_lines = strip_from > 0 ? content_lines[0 : strip_from - 1] : []
     else
         body_lines = copy(content_lines)
     endif
 
-    # ── Scan and rewrite links ─────────────────────────────────────────────────
+    # Strip trailing blank lines from body so assembly spacing is clean.
+    while !empty(body_lines) && body_lines[len(body_lines) - 1] =~# '^\s*$'
+        remove(body_lines, -1)
+    endwhile
+
+    # ── Scan and rewrite links, skipping HTML comment content ─────────────────
     # Process content left-to-right, top-to-bottom:
     #   [text][N]   → renumber N; reuse same new index for repeated old N
-    #   [text](url) → convert to [text][new_idx]; each occurrence gets its own index
+    #   [text][]    → placeholder (about:blank)
+    #   [text](url) → convert to [text][new_idx]
+    #   [text]()    → placeholder (about:blank)
+    # Content inside <!-- ... --> comments is passed through unchanged.
     var next_idx = 1
     var old_to_new: dict<number> = {}
     var new_urls: dict<string>   = {}
     var new_body: list<string>   = []
+    var in_html_comment = false
 
     for body_line in body_lines
         var result = ''
@@ -477,9 +511,40 @@ export def DigestLinks()
 
         while pos < line_len
             var rest = body_line[pos :]
-            var ref_match    = matchlist(rest, '^\(\[[^\]]\{-}\]\)\[\(\d\+\)\]')
-            var inline_match = matchlist(rest, '^\(\[[^\]]\{-}\]\)(\([^)]\{-}\))')
 
+            # ── Inside a multiline HTML comment: passthrough until --> ────────
+            if in_html_comment
+                var close_idx = match(rest, '-->')
+                if close_idx >= 0
+                    result ..= rest[0 : close_idx + 2]
+                    pos += close_idx + 3
+                    in_html_comment = false
+                else
+                    result ..= rest
+                    pos = line_len
+                endif
+                continue
+            endif
+
+            # ── HTML comment open <!-- ────────────────────────────────────────
+            if len(rest) >= 4 && rest[0 : 3] ==# '<!--'
+                var after_open = rest[4 :]
+                var close_idx  = match(after_open, '-->')
+                if close_idx >= 0
+                    # Comment opens and closes on this line — passthrough entire span.
+                    result ..= rest[0 : close_idx + 6]
+                    pos += close_idx + 7
+                else
+                    # Comment opens but does not close — carry state to next lines.
+                    in_html_comment = true
+                    result ..= rest
+                    pos = line_len
+                endif
+                continue
+            endif
+
+            # ── Numbered reference: [text][N] ─────────────────────────────────
+            var ref_match = matchlist(rest, '^\(\[[^\]]\{-}\]\)\[\(\d\+\)\]')
             if !empty(ref_match)
                 var full      = ref_match[0]
                 var text_part = ref_match[1]
@@ -489,21 +554,38 @@ export def DigestLinks()
                     new_urls[string(next_idx)] = get(old_defs, old_idx, 'about:blank')
                     next_idx += 1
                 endif
-                var new_idx = old_to_new[old_idx]
-                result ..= $'{text_part}[{new_idx}]'
+                result ..= $'{text_part}[{old_to_new[old_idx]}]'
                 pos += len(full)
-            elseif !empty(inline_match)
+                continue
+            endif
+
+            # ── Empty reference: [text][] ─────────────────────────────────────
+            var empty_ref_match = matchlist(rest, '^\(\[[^\]]\{-}\]\)\[\]')
+            if !empty(empty_ref_match)
+                var full      = empty_ref_match[0]
+                var text_part = empty_ref_match[1]
+                new_urls[string(next_idx)] = 'about:blank'
+                result ..= $'{text_part}[{next_idx}]'
+                next_idx += 1
+                pos += len(full)
+                continue
+            endif
+
+            # ── Inline link: [text](url) or [text]() ─────────────────────────
+            var inline_match = matchlist(rest, '^\(\[[^\]]\{-}\]\)(\([^)]*\))')
+            if !empty(inline_match)
                 var full      = inline_match[0]
                 var text_part = inline_match[1]
-                var url       = inline_match[2]
+                var url       = inline_match[2] ==# '' ? 'about:blank' : inline_match[2]
                 new_urls[string(next_idx)] = url
                 result ..= $'{text_part}[{next_idx}]'
                 next_idx += 1
                 pos += len(full)
-            else
-                result ..= rest[0]
-                pos += 1
+                continue
             endif
+
+            result ..= rest[0]
+            pos += 1
         endwhile
 
         new_body->add(result)
@@ -520,7 +602,11 @@ export def DigestLinks()
         def_block->add($'[{idx}]: {new_urls[string(idx)]}')
     endfor
 
-    var new_content = new_body + [''] + def_block
+    # Structure: body + blank + definitions + blank + presenter notes (if any)
+    var new_content = new_body + [''] + def_block + ['']
+    if !empty(presenter_notes)
+        new_content = new_content + presenter_notes
+    endif
 
     # ── Replace slide content ──────────────────────────────────────────────────
     deletebufline('%', slide_start + 1, slide_end)
