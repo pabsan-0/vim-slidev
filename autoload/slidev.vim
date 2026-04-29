@@ -385,6 +385,151 @@ export def RunDev()
         .. ' pnpm dev ' .. shellescape(rel_file)
 enddef
 
+# ── Link digesting ────────────────────────────────────────────────────────────
+
+export def DigestLinks()
+    var slides = GetSlideLines()
+    if empty(slides)
+        echo '[Slidev] no slides found'
+        return
+    endif
+
+    var cur = line('.')
+    var slide_start = 0
+    var slide_end = line('$')
+
+    for lnum in slides
+        if lnum <= cur
+            slide_start = lnum
+        endif
+    endfor
+
+    if slide_start == 0
+        echo '[Slidev] cursor is not inside a slide'
+        return
+    endif
+
+    for lnum in slides
+        if lnum > slide_start
+            slide_end = lnum - 1
+            break
+        endif
+    endfor
+
+    # The separator '---' is at slide_start; slide content begins on the next line.
+    if slide_start >= slide_end
+        echo '[Slidev] no links found'
+        return
+    endif
+
+    var content_lines: list<string> = getline(slide_start + 1, slide_end)
+
+    # ── Parse existing definition block ───────────────────────────────────────
+    # Scan backwards for lines matching [N]: url (with optional blank lines).
+    var old_defs: dict<string> = {}
+    var def_start_idx = -1
+    var i = len(content_lines) - 1
+    while i >= 0
+        var ln = content_lines[i]
+        if ln =~# '^\[\d\+\]: '
+            def_start_idx = i
+            var m = matchlist(ln, '^\[\(\d\+\)\]: \(.*\)$')
+            if !empty(m)
+                old_defs[m[1]] = m[2]
+            endif
+        elseif ln =~# '^\s*$'
+            # blank line — keep scanning
+        else
+            break
+        endif
+        i -= 1
+    endwhile
+
+    # Strip definition block and the blank lines immediately preceding it.
+    var body_lines: list<string>
+    if def_start_idx >= 0
+        var strip_from = def_start_idx
+        while strip_from > 0 && content_lines[strip_from - 1] =~# '^\s*$'
+            strip_from -= 1
+        endwhile
+        if strip_from > 0
+            body_lines = content_lines[0 : strip_from - 1]
+        else
+            body_lines = []
+        endif
+    else
+        body_lines = copy(content_lines)
+    endif
+
+    # ── Scan and rewrite links ─────────────────────────────────────────────────
+    # Process content left-to-right, top-to-bottom:
+    #   [text][N]   → renumber N; reuse same new index for repeated old N
+    #   [text](url) → convert to [text][new_idx]; each occurrence gets its own index
+    var next_idx = 1
+    var old_to_new: dict<number> = {}
+    var new_urls: dict<string>   = {}
+    var new_body: list<string>   = []
+
+    for body_line in body_lines
+        var result = ''
+        var pos = 0
+        var line_len = len(body_line)
+
+        while pos < line_len
+            var rest = body_line[pos :]
+            var ref_match    = matchlist(rest, '^\(\[[^\]]\{-}\]\)\[\(\d\+\)\]')
+            var inline_match = matchlist(rest, '^\(\[[^\]]\{-}\]\)(\([^)]\{-}\))')
+
+            if !empty(ref_match)
+                var full      = ref_match[0]
+                var text_part = ref_match[1]
+                var old_idx   = ref_match[2]
+                if !has_key(old_to_new, old_idx)
+                    old_to_new[old_idx] = next_idx
+                    new_urls[string(next_idx)] = get(old_defs, old_idx, 'about:blank')
+                    next_idx += 1
+                endif
+                var new_idx = old_to_new[old_idx]
+                result ..= $'{text_part}[{new_idx}]'
+                pos += len(full)
+            elseif !empty(inline_match)
+                var full      = inline_match[0]
+                var text_part = inline_match[1]
+                var url       = inline_match[2]
+                new_urls[string(next_idx)] = url
+                result ..= $'{text_part}[{next_idx}]'
+                next_idx += 1
+                pos += len(full)
+            else
+                result ..= rest[0]
+                pos += 1
+            endif
+        endwhile
+
+        new_body->add(result)
+    endfor
+
+    if empty(new_urls)
+        echo '[Slidev] no links found'
+        return
+    endif
+
+    # ── Build new definition block ─────────────────────────────────────────────
+    var def_block: list<string> = []
+    for idx in range(1, next_idx - 1)
+        def_block->add($'[{idx}]: {new_urls[string(idx)]}')
+    endfor
+
+    var new_content = new_body + [''] + def_block
+
+    # ── Replace slide content ──────────────────────────────────────────────────
+    deletebufline('%', slide_start + 1, slide_end)
+    append(slide_start, new_content)
+
+    UpdateGhostText()
+    echo '[Slidev] links digested'
+enddef
+
 # ── Info ──────────────────────────────────────────────────────────────────────
 
 # Static table used both for display and as the authoritative list of levels.
@@ -562,6 +707,7 @@ export def Disable()
     silent! execute 'nunmap <buffer> <leader>R'
     silent! execute 'nunmap <buffer> <leader>i'
     silent! execute 'nunmap <buffer> <leader>z'
+    silent! execute 'nunmap <buffer> <leader>L'
     # These are only present when focus mode was active at disable time.
     silent! execute 'nunmap <buffer> k'
     silent! execute 'nunmap <buffer> j'
@@ -572,6 +718,7 @@ export def Disable()
     silent! execute 'delcommand -buffer SlidevRefresh'
     silent! execute 'delcommand -buffer SlidevFocus'
     silent! execute 'delcommand -buffer SlidevDisable'
+    silent! execute 'delcommand -buffer SlidevDigestLinks'
 
     # Remove ghost-text annotations that prop_add() left on the separator lines.
     var buf = bufnr('%')
@@ -618,6 +765,7 @@ export def Setup()
     nnoremap <buffer> <leader>R <ScriptCmd>RunDev()<CR>
     nnoremap <buffer> <leader>i <ScriptCmd>Info()<CR>
     nnoremap <buffer> <leader>z <ScriptCmd>FocusSlide()<CR>
+    nnoremap <buffer> <leader>L <ScriptCmd>DigestLinks()<CR>
 
     # command! bodies are not inside this script's scope, so the autoload
     # prefix slidev# is required to reach the exported functions.
@@ -625,6 +773,7 @@ export def Setup()
     command! -buffer SlidevRefresh call slidev#UpdateGhostText()
     command! -buffer SlidevFocus call slidev#FocusSlide()
     command! -buffer SlidevDisable call slidev#Disable()
+    command! -buffer SlidevDigestLinks call slidev#DigestLinks()
 
     b:slidev_active = true
 

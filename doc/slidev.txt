@@ -65,6 +65,8 @@ All mappings are buffer-local and only active in detected Slidev files.
     <leader>R   Run `pnpm dev %` in a terminal split
     <leader>i   Print slide position and plugin variable values (:SlidevInfo)
     <leader>z   Toggle single-slide focus view (:SlidevFocus)
+    <leader>L   Normalize and consolidate all markdown links in the current
+                slide (:SlidevDigestLinks)
 
 In focus mode two extra buffer-local mappings are active:
 
@@ -108,6 +110,15 @@ The following commands are buffer-local and only available after detection
 *:SlidevDisable*
     Deactivate all Slidev features for the current buffer (mappings, ghost
     text, commands, autocmds). Use |:SlidevEnable| to reactivate.
+
+*:SlidevDigestLinks*
+    Parse all markdown links in the current slide, renumber them
+    sequentially from 1, and append a consolidated reference block at the
+    end of the slide.  Both reference-style links (`[text][N]`) and inline
+    links (`[text](url)`) are detected; inline links are converted to
+    numbered reference style.  Any reference whose old number had no
+    matching definition gets `about:blank` as a placeholder URL.  If no
+    links are found the slide is left unchanged.
 
 ==============================================================================
 vim:ft=help:tw=78:
