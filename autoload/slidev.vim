@@ -388,6 +388,8 @@ enddef
 # ── Link digesting ────────────────────────────────────────────────────────────
 
 export def DigestLinks()
+    var saved_view = winsaveview()
+
     var slides = GetSlideLines()
     if empty(slides)
         echo '[Slidev] no slides found'
@@ -614,6 +616,7 @@ export def DigestLinks()
 
     UpdateGhostText()
     echo '[Slidev] links digested'
+    winrestview(saved_view)
 enddef
 
 # ── Info ──────────────────────────────────────────────────────────────────────
