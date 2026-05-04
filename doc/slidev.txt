@@ -52,6 +52,28 @@ are always skipped regardless of strictness.
         g:slidev_ignored_names = ['readme.md']
 <
 
+*g:slidev_dev_port*
+    Port on which the Slidev dev server listens. Used to build the slide URL
+    in Mode A preview (|:SlidevPreviewToggle|).
+    Default: 3030
+
+*g:slidev_screenshot_cmd*
+    Shell command template used to capture a screenshot of a slide (Mode A).
+    Must contain both {url} and {output} placeholders, which are substituted
+    at render time with the slide URL and the output file path respectively.
+    Example: >
+        let g:slidev_screenshot_cmd =
+            \ 'brave --headless=new --screenshot={output} --window-size=1920,1080 {url}'
+<
+    When unset (the default), the plugin falls back to `pnpm slidev export`
+    (Mode B).
+    Default: '' (empty — Mode B is used)
+
+*g:slidev_screenshot_path*
+    File path where Mode A writes the screenshot image and where |chafa| reads
+    it from.
+    Default: /tmp/slidev-preview/slide.png
+
 ==============================================================================
 4. MAPPINGS                                                     *slidev-mappings*
 
@@ -65,6 +87,7 @@ All mappings are buffer-local and only active in detected Slidev files.
     <leader>R   Run `pnpm dev %` in a terminal split
     <leader>i   Print slide position and plugin variable values (:SlidevInfo)
     <leader>z   Toggle single-slide focus view (:SlidevFocus)
+    <leader>P   Toggle live slide preview (:SlidevPreviewToggle)
 
 In focus mode two extra buffer-local mappings are active:
 
@@ -104,6 +127,34 @@ The following commands are buffer-local and only available after detection
     above/below the slide and pressing the key once more exits focus mode.
     Run again (or use |zR|) to unfold everything. The previous foldmethod is
     restored when focus is toggled off.
+
+*:SlidevPreviewToggle*
+    Toggle a live slide preview in a vertical split to the right. When enabled:
+    - Opens a |:terminal| buffer running `chafa` to render the current slide
+      as an image directly in the terminal.
+    - Refreshes automatically on slide navigation (<C-n>/<C-p>) and on file
+      save (|BufWritePost|).
+    - Requires `chafa` to be installed and in PATH.
+
+    Two rendering modes are supported:
+
+    Mode A (custom screenshot command): When |g:slidev_screenshot_cmd| is
+    configured, that command is invoked to capture the current slide from the
+    running dev server. The slide URL is built as
+    `http://localhost:{g:slidev_dev_port}/{slidenum}`. Example: >
+        let g:slidev_screenshot_cmd =
+            \ 'brave --headless=new --screenshot={output} --window-size=1920,1080 {url}'
+<
+    Mode B (pnpm slidev export): When |g:slidev_screenshot_cmd| is empty (the
+    default), the plugin runs `pnpm slidev export --format png --range N` to
+    render the current slide. This is slower (Playwright startup) but requires
+    no extra tools beyond pnpm.
+
+    Use |:SlidevPreviewRefresh| to force a re-render at any time.
+
+*:SlidevPreviewRefresh*
+    Force a re-render of the current slide in the preview split. Has no effect
+    when the preview is not active.
 
 *:SlidevDisable*
     Deactivate all Slidev features for the current buffer (mappings, ghost
