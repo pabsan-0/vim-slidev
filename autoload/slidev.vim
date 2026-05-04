@@ -734,11 +734,14 @@ enddef
 # Tries the expected zero-padded name first, then falls back to any PNG in
 # output_dir.
 def FindExportedPng(output_dir: string, slidenum: number): string
-    var expected = output_dir .. printf('%03d', slidenum) .. '.png'
+    # Normalise the directory path so this works whether or not output_dir has
+    # a trailing slash.
+    var dir = output_dir =~# '/$' ? output_dir : output_dir .. '/'
+    var expected = dir .. printf('%03d', slidenum) .. '.png'
     if filereadable(expected)
         return expected
     endif
-    var pngs = glob(output_dir .. '*.png', 0, 1)
+    var pngs = glob(dir .. '*.png', 0, 1)
     return empty(pngs) ? '' : pngs[0]
 enddef
 
@@ -900,8 +903,8 @@ export def PreviewRefreshCurrent()
     endif
     # Detect if the user closed the preview window manually.
     var preview_winid = get(b:, 'slidev_preview_winid', -1)
-    if type(preview_winid) == v:t_number && preview_winid != -1
-            && win_id2win(preview_winid) == 0
+    var winid_is_set = type(preview_winid) == v:t_number && preview_winid != -1
+    if winid_is_set && win_id2win(preview_winid) == 0
         b:slidev_preview_active = false
         return
     endif
