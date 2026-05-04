@@ -5,6 +5,24 @@ if !exists('g:slidev_strictness')
     g:slidev_strictness = 3
 endif
 
+# Dev server port used to build the preview URL (Mode A).
+if !exists('g:slidev_dev_port')
+    g:slidev_dev_port = 3030
+endif
+
+# Command template for taking a screenshot of a slide.
+# Must contain {url} and {output} placeholders.
+# Example: 'brave --headless=new --screenshot={output} --window-size=1920,1080 {url}'
+# If unset, the plugin falls back to `pnpm slidev export`.
+if !exists('g:slidev_screenshot_cmd')
+    g:slidev_screenshot_cmd = ''
+endif
+
+# Where the screenshot command writes the image (Mode A) and where chafa reads it from.
+if !exists('g:slidev_screenshot_path')
+    g:slidev_screenshot_path = '/tmp/slidev-preview/slide.png'
+endif
+
 # Common markdown filenames that are documentation, not slidev presentations.
 # Lowercased so comparisons in Detect() are case-insensitive.
 if !exists('g:slidev_ignored_names')

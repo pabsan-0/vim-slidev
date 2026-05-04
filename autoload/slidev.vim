@@ -246,6 +246,10 @@ export def GoForward(count: number)
         b:slidev_focus = false
         FocusSlide()
     endif
+    # Refresh preview if active.
+    if get(b:, 'slidev_preview_active', false)
+        PreviewRefreshCurrent()
+    endif
 enddef
 
 export def GoBackward(count: number)
@@ -266,6 +270,10 @@ export def GoBackward(count: number)
     if get(b:, 'slidev_focus', false)
         b:slidev_focus = false
         FocusSlide()
+    endif
+    # Refresh preview if active.
+    if get(b:, 'slidev_preview_active', false)
+        PreviewRefreshCurrent()
     endif
 enddef
 
@@ -562,6 +570,7 @@ export def Disable()
     silent! execute 'nunmap <buffer> <leader>R'
     silent! execute 'nunmap <buffer> <leader>i'
     silent! execute 'nunmap <buffer> <leader>z'
+    silent! execute 'nunmap <buffer> <leader>P'
     # These are only present when focus mode was active at disable time.
     silent! execute 'nunmap <buffer> k'
     silent! execute 'nunmap <buffer> j'
@@ -571,7 +580,14 @@ export def Disable()
     silent! execute 'delcommand -buffer SlidevGoToSlideNum'
     silent! execute 'delcommand -buffer SlidevRefresh'
     silent! execute 'delcommand -buffer SlidevFocus'
+    silent! execute 'delcommand -buffer SlidevPreviewToggle'
+    silent! execute 'delcommand -buffer SlidevPreviewRefresh'
     silent! execute 'delcommand -buffer SlidevDisable'
+
+    # Close preview if it is active.
+    if get(b:, 'slidev_preview_active', false)
+        PreviewClose()
+    endif
 
     # Remove ghost-text annotations that prop_add() left on the separator lines.
     var buf = bufnr('%')
@@ -618,12 +634,15 @@ export def Setup()
     nnoremap <buffer> <leader>R <ScriptCmd>RunDev()<CR>
     nnoremap <buffer> <leader>i <ScriptCmd>Info()<CR>
     nnoremap <buffer> <leader>z <ScriptCmd>FocusSlide()<CR>
+    nnoremap <buffer> <leader>P <ScriptCmd>PreviewToggle()<CR>
 
     # command! bodies are not inside this script's scope, so the autoload
     # prefix slidev# is required to reach the exported functions.
     command! -buffer -nargs=1 SlidevGoToSlideNum call slidev#GoToSlide(<args>)
     command! -buffer SlidevRefresh call slidev#UpdateGhostText()
     command! -buffer SlidevFocus call slidev#FocusSlide()
+    command! -buffer SlidevPreviewToggle call slidev#PreviewToggle()
+    command! -buffer SlidevPreviewRefresh call slidev#PreviewRefreshCurrent()
     command! -buffer SlidevDisable call slidev#Disable()
 
     b:slidev_active = true
@@ -634,5 +653,260 @@ export def Setup()
     augroup SlidevGhost
         autocmd! * <buffer>
         autocmd TextChanged,TextChangedI,BufWritePost,VimResized <buffer> slidev#UpdateGhostText()
+        autocmd BufWritePost <buffer> slidev#PreviewRefreshCurrent()
     augroup END
+enddef
+
+# ── Preview ───────────────────────────────────────────────────────────────────
+
+# Return the 1-based slide number the cursor is currently on, or 0 if the
+# cursor is not inside any slide.
+def GetCurrentSlideNum(): number
+    var slides = GetSlideLines()
+    var cur = line('.')
+    var slide_num = 0
+    for i in range(len(slides))
+        if slides[i] <= cur
+            slide_num = i + 1
+        endif
+    endfor
+    return slide_num
+enddef
+
+# Open a vertical split to the right showing a placeholder message.
+# Stores the new window ID in b:slidev_preview_winid on the source buffer.
+def PreviewOpen()
+    var source_bufnr = bufnr('%')
+    var source_winid = win_getid()
+    execute 'botright vsplit'
+    enew
+    setlocal buftype=nofile bufhidden=wipe nobuflisted
+    setlocal nonumber norelativenumber filetype=
+    silent! execute 'file SlidevPreview'
+    call setline(1, '[Slidev] rendering...')
+    var preview_winid = win_getid()
+    win_gotoid(source_winid)
+    setbufvar(source_bufnr, 'slidev_preview_winid', preview_winid)
+enddef
+
+# Replace the contents of the preview window with a chafa terminal showing
+# image_path.  Sets b:slidev_preview_active = false on source_bufnr when the
+# preview window has been closed by the user.
+def RedrawPreview(source_bufnr: number, image_path: string)
+    if !filereadable(image_path)
+        return
+    endif
+    var preview_winid = getbufvar(source_bufnr, 'slidev_preview_winid', -1)
+    if type(preview_winid) != v:t_number || win_id2win(preview_winid) == 0
+        setbufvar(source_bufnr, 'slidev_preview_active', false)
+        return
+    endif
+    var orig_win = win_getid()
+    win_gotoid(preview_winid)
+    # Stop any running terminal job in the preview window before replacing it.
+    var preview_buf = winbufnr(win_id2win(preview_winid))
+    if getbufvar(preview_buf, '&buftype', '') ==# 'terminal'
+        var old_job = term_getjob(preview_buf)
+        if type(old_job) == v:t_job && job_status(old_job) ==# 'run'
+            job_stop(old_job)
+        endif
+    endif
+    term_start(['chafa', image_path], {curwin: 1, term_name: 'SlidevPreview'})
+    win_gotoid(orig_win)
+    echo '[Slidev] preview ready'
+enddef
+
+# Callback used by Mode A (custom screenshot command).
+def PreviewRenderDone(source_bufnr: number, image_path: string, status: number)
+    if status != 0
+        echohl WarningMsg
+        echo '[Slidev] preview render failed'
+        echohl None
+        return
+    endif
+    if !getbufvar(source_bufnr, 'slidev_preview_active', false)
+        return
+    endif
+    RedrawPreview(source_bufnr, image_path)
+enddef
+
+# Locate the PNG that pnpm slidev export wrote for slidenum.
+# Tries the expected zero-padded name first, then falls back to any PNG in
+# output_dir.
+def FindExportedPng(output_dir: string, slidenum: number): string
+    # Normalise the directory path so this works whether or not output_dir has
+    # a trailing slash.
+    var dir = output_dir =~# '/$' ? output_dir : output_dir .. '/'
+    var expected = dir .. printf('%03d', slidenum) .. '.png'
+    if filereadable(expected)
+        return expected
+    endif
+    var pngs = glob(dir .. '*.png', 0, 1)
+    return empty(pngs) ? '' : pngs[0]
+enddef
+
+# Callback used by Mode B (pnpm slidev export).
+def PreviewRenderDonePnpm(source_bufnr: number, slidenum: number,
+                          output_dir: string, status: number)
+    if status != 0
+        echohl WarningMsg
+        echo '[Slidev] preview render failed'
+        echohl None
+        return
+    endif
+    if !getbufvar(source_bufnr, 'slidev_preview_active', false)
+        return
+    endif
+    var image_path = FindExportedPng(output_dir, slidenum)
+    if image_path == ''
+        echohl WarningMsg
+        echo '[Slidev] preview: no PNG found after export'
+        echohl None
+        return
+    endif
+    RedrawPreview(source_bufnr, image_path)
+enddef
+
+# Mode A: run g:slidev_screenshot_cmd to produce the slide image.
+def RenderModeA(source_bufnr: number, slidenum: number)
+    var cmd_template = get(g:, 'slidev_screenshot_cmd', '')
+    if cmd_template !~# '{url}' || cmd_template !~# '{output}'
+        echohl WarningMsg
+        echo '[Slidev] g:slidev_screenshot_cmd must contain {url} and {output} placeholders'
+        echohl None
+        return
+    endif
+    var screenshot_path = get(g:, 'slidev_screenshot_path', '/tmp/slidev-preview/slide.png')
+    var dir = fnamemodify(screenshot_path, ':h')
+    if !isdirectory(dir)
+        mkdir(dir, 'p')
+    endif
+    var port = get(g:, 'slidev_dev_port', 3030)
+    var url = $'http://localhost:{port}/{slidenum}'
+    var cmd = cmd_template
+        ->substitute('{url}', url, 'g')
+        ->substitute('{output}', screenshot_path, 'g')
+    var job = job_start(cmd, {
+        exit_cb: (j, s) => PreviewRenderDone(source_bufnr, screenshot_path, s),
+        out_io: 'null',
+        err_io: 'null',
+    })
+    setbufvar(source_bufnr, 'slidev_preview_job', job)
+enddef
+
+# Mode B: export the current slide with `pnpm slidev export`.
+def RenderModeB(source_bufnr: number, slidenum: number)
+    if !executable('pnpm')
+        echohl WarningMsg
+        echo '[Slidev] SlidevPreviewToggle: pnpm not found in PATH'
+        echohl None
+        return
+    endif
+    var file_abs = fnamemodify(bufname(source_bufnr), ':p')
+    var file_dir = fnamemodify(file_abs, ':h')
+    var pkg_path = findfile('package.json', file_dir .. ';')
+    if pkg_path == ''
+        echohl WarningMsg
+        echo '[Slidev] SlidevPreviewToggle: no package.json found up the directory tree'
+        echohl None
+        return
+    endif
+    var pkg_dir  = fnamemodify(pkg_path, ':p:h')
+    var rel_file = file_abs
+    if stridx(file_abs, pkg_dir) == 0
+        rel_file = file_abs[len(pkg_dir) + 1 :]
+    endif
+    var output_dir = '/tmp/slidev-preview/'
+    if !isdirectory(output_dir)
+        mkdir(output_dir, 'p')
+    endif
+    var cmd = ['pnpm', 'slidev', 'export', '--format', 'png',
+               '--output', output_dir, rel_file, '--range', string(slidenum)]
+    var job = job_start(cmd, {
+        cwd: pkg_dir,
+        exit_cb: (j, s) => PreviewRenderDonePnpm(source_bufnr, slidenum, output_dir, s),
+        out_io: 'null',
+        err_io: 'null',
+    })
+    setbufvar(source_bufnr, 'slidev_preview_job', job)
+enddef
+
+# Determine the current slide, kill any in-flight render job, then dispatch to
+# Mode A or Mode B depending on whether g:slidev_screenshot_cmd is configured.
+def RenderSlide(source_bufnr: number)
+    var slidenum = GetCurrentSlideNum()
+    if slidenum == 0
+        echohl WarningMsg
+        echo '[Slidev] cursor is not inside a slide'
+        echohl None
+        return
+    endif
+    # Kill any previously running export job.
+    var prev_job = getbufvar(source_bufnr, 'slidev_preview_job', 0)
+    if type(prev_job) == v:t_job && job_status(prev_job) ==# 'run'
+        job_stop(prev_job)
+    endif
+    echo $'[Slidev] rendering slide {slidenum}…'
+    if get(g:, 'slidev_screenshot_cmd', '') != ''
+        RenderModeA(source_bufnr, slidenum)
+    else
+        RenderModeB(source_bufnr, slidenum)
+    endif
+enddef
+
+# Close the preview window and stop any running render job.
+def PreviewClose()
+    var job = get(b:, 'slidev_preview_job', 0)
+    if type(job) == v:t_job && job_status(job) ==# 'run'
+        job_stop(job)
+    endif
+    var preview_winid = get(b:, 'slidev_preview_winid', -1)
+    if type(preview_winid) == v:t_number && win_id2win(preview_winid) != 0
+        win_execute(preview_winid, 'close!')
+    endif
+    b:slidev_preview_active = false
+    echo '[Slidev] preview off'
+enddef
+
+# Toggle the preview split on or off.  Checks that chafa is available before
+# opening; all state is stored as b: variables on the markdown buffer.
+export def PreviewToggle()
+    if !get(b:, 'slidev_active', false)
+        echohl WarningMsg
+        echo '[Slidev] preview requires the plugin to be active on this buffer'
+        echohl None
+        return
+    endif
+    if get(b:, 'slidev_preview_active', false)
+        PreviewClose()
+    else
+        if !executable('chafa')
+            echohl WarningMsg
+            echo '[Slidev] SlidevPreviewToggle: chafa not found in PATH'
+            echohl None
+            return
+        endif
+        b:slidev_preview_active = true
+        PreviewOpen()
+        PreviewRefreshCurrent()
+        echo '[Slidev] preview on'
+    endif
+enddef
+
+# Re-render the preview for the slide currently under the cursor.
+# Called automatically by the BufWritePost autocmd and by GoForward/GoBackward.
+# Returns immediately when preview is not active or when the preview window has
+# been closed manually by the user.
+export def PreviewRefreshCurrent()
+    if !get(b:, 'slidev_preview_active', false)
+        return
+    endif
+    # Detect if the user closed the preview window manually.
+    var preview_winid = get(b:, 'slidev_preview_winid', -1)
+    var winid_is_set = type(preview_winid) == v:t_number && preview_winid != -1
+    if winid_is_set && win_id2win(preview_winid) == 0
+        b:slidev_preview_active = false
+        return
+    endif
+    RenderSlide(bufnr('%'))
 enddef
