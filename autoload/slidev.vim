@@ -385,6 +385,285 @@ export def RunDev()
         .. ' pnpm dev ' .. shellescape(rel_file)
 enddef
 
+# ── Link digesting ────────────────────────────────────────────────────────────
+
+# This function will parse all links in a slide in order, then place them at
+# the bottom on a reference paragraph.
+export def DigestLinks()
+    var saved_view = winsaveview()
+
+    var slides = GetSlideLines()
+    if empty(slides)
+        echo '[Slidev] no slides found'
+        return
+    endif
+
+    var cur = line('.')
+    var slide_start = 0
+    var slide_end = line('$')
+
+    for lnum in slides
+        if lnum <= cur
+            slide_start = lnum
+        endif
+    endfor
+
+    if slide_start == 0
+        echo '[Slidev] cursor is not inside a slide'
+        return
+    endif
+
+    for lnum in slides
+        if lnum > slide_start
+            slide_end = lnum - 1
+            break
+        endif
+    endfor
+
+    # The separator '---' is at slide_start; slide content begins on the next line.
+    if slide_start >= slide_end
+        echo '[Slidev] no links found'
+        return
+    endif
+
+    var content_lines: list<string> = getline(slide_start + 1, slide_end)
+
+    # ── Detect and strip trailing presenter notes (HTML comment block) ────────
+    # In Slidev an HTML comment at the bottom of a slide is a presenter note.
+    # The reference list must be inserted *above* these notes.
+    var presenter_notes: list<string> = []
+
+    # Find last non-blank line.
+    var j = len(content_lines) - 1
+    while j >= 0 && content_lines[j] =~# '^\s*$'
+        j -= 1
+    endwhile
+
+    # If the last non-blank line closes a comment, scan backward for its opener.
+    if j >= 0 && content_lines[j] =~# '-->\s*$'
+        var k = j
+        while k >= 0
+            if content_lines[k] =~# '<!--'
+                if k > 0
+                    presenter_notes = content_lines[k :]
+                    content_lines   = content_lines[0 : k - 1]
+                else
+                    presenter_notes = copy(content_lines)
+                    content_lines   = []
+                endif
+                break
+            endif
+            k -= 1
+        endwhile
+    endif
+
+    # ── Parse existing definition block ───────────────────────────────────────
+    # Scan backwards for lines matching [N]: url (with optional blank lines).
+    var old_defs: dict<string> = {}
+    var def_start_idx = -1
+    var i = len(content_lines) - 1
+    while i >= 0
+        var ln = content_lines[i]
+        if ln =~# '^\[\d\+\]: '
+            def_start_idx = i
+            var m = matchlist(ln, '^\[\(\d\+\)\]: \(.*\)$')
+            if !empty(m)
+                old_defs[m[1]] = m[2]
+            endif
+        elseif ln =~# '^\s*$'
+            # blank line — keep scanning
+        else
+            break
+        endif
+        i -= 1
+    endwhile
+
+    # Strip definition block and the blank lines immediately preceding it.
+    var body_lines: list<string>
+    if def_start_idx >= 0
+        var strip_from = def_start_idx
+        while strip_from > 0 && content_lines[strip_from - 1] =~# '^\s*$'
+            strip_from -= 1
+        endwhile
+        body_lines = strip_from > 0 ? content_lines[0 : strip_from - 1] : []
+    else
+        body_lines = copy(content_lines)
+    endif
+
+    # Strip trailing blank lines from body so assembly spacing is clean.
+    while !empty(body_lines) && body_lines[len(body_lines) - 1] =~# '^\s*$'
+        remove(body_lines, -1)
+    endwhile
+
+    # ── Scan and rewrite links, skipping HTML comment content ─────────────────
+    # Process content left-to-right, top-to-bottom:
+    #   [text][N]   → renumber N; reuse same new index for repeated old N
+    #   [text][]    → placeholder (about:blank)
+    #   [text](url) → convert to [text][new_idx]
+    #   [text]()    → placeholder (about:blank)
+    # Content inside <!-- ... --> comments is passed through unchanged.
+    var next_idx = 1
+    var old_to_new: dict<number> = {}
+    var new_urls: dict<string>   = {}
+    var new_body: list<string>   = []
+    var in_html_comment = false
+
+    for body_line in body_lines
+        var result = ''
+        var pos = 0
+        var line_len = len(body_line)
+
+        while pos < line_len
+            var rest = body_line[pos :]
+
+            # ── Inside a multiline HTML comment: passthrough until --> ────────
+            if in_html_comment
+                var close_idx = match(rest, '-->')
+                if close_idx >= 0
+                    result ..= rest[0 : close_idx + 2]
+                    pos += close_idx + 3
+                    in_html_comment = false
+                else
+                    result ..= rest
+                    pos = line_len
+                endif
+                continue
+            endif
+
+            # ── HTML comment open <!-- ────────────────────────────────────────
+            if len(rest) >= 4 && rest[0 : 3] ==# '<!--'
+                var after_open = rest[4 :]
+                var close_idx  = match(after_open, '-->')
+                if close_idx >= 0
+                    # Comment opens and closes on this line — passthrough entire span.
+                    result ..= rest[0 : close_idx + 6]
+                    pos += close_idx + 7
+                else
+                    # Comment opens but does not close — carry state to next lines.
+                    in_html_comment = true
+                    result ..= rest
+                    pos = line_len
+                endif
+                continue
+            endif
+
+            # ── Numbered reference: [text][N] ─────────────────────────────────
+            var ref_match = matchlist(rest, '^\(\[[^\]]\{-}\]\)\[\(\d\+\)\]')
+            if !empty(ref_match)
+                var full      = ref_match[0]
+                var text_part = ref_match[1]
+                var old_idx   = ref_match[2]
+                if !has_key(old_to_new, old_idx)
+                    old_to_new[old_idx] = next_idx
+                    new_urls[string(next_idx)] = get(old_defs, old_idx, 'about:blank')
+                    next_idx += 1
+                endif
+                result ..= $'{text_part}[{old_to_new[old_idx]}]'
+                pos += len(full)
+                continue
+            endif
+
+            # ── Empty reference: [text][] ─────────────────────────────────────
+            var empty_ref_match = matchlist(rest, '^\(\[[^\]]\{-}\]\)\[\]')
+            if !empty(empty_ref_match)
+                var full      = empty_ref_match[0]
+                var text_part = empty_ref_match[1]
+                new_urls[string(next_idx)] = 'about:blank'
+                result ..= $'{text_part}[{next_idx}]'
+                next_idx += 1
+                pos += len(full)
+                continue
+            endif
+
+            # ── Inline link: [text](url) or [text]() ─────────────────────────
+            var inline_match = matchlist(rest, '^\(\[[^\]]\{-}\]\)(\([^)]*\))')
+            if !empty(inline_match)
+                var full      = inline_match[0]
+                var text_part = inline_match[1]
+                var url       = inline_match[2] ==# '' ? 'about:blank' : inline_match[2]
+                new_urls[string(next_idx)] = url
+                result ..= $'{text_part}[{next_idx}]'
+                next_idx += 1
+                pos += len(full)
+                continue
+            endif
+
+            result ..= rest[0]
+            pos += 1
+        endwhile
+
+        new_body->add(result)
+    endfor
+
+    if empty(new_urls)
+        echo '[Slidev] no links found'
+        return
+    endif
+
+    # ── Build new definition block ─────────────────────────────────────────────
+    var def_block: list<string> = []
+    for idx in range(1, next_idx - 1)
+        def_block->add($'[{idx}]: {new_urls[string(idx)]}')
+    endfor
+
+    # Structure: body + blank + definitions + blank + presenter notes (if any)
+    var new_content = new_body + [''] + def_block + ['']
+    if !empty(presenter_notes)
+        new_content = new_content + presenter_notes
+    endif
+
+    # ── Replace slide content ──────────────────────────────────────────────────
+    deletebufline('%', slide_start + 1, slide_end)
+    append(slide_start, new_content)
+
+    UpdateGhostText()
+    echo '[Slidev] links digested'
+    winrestview(saved_view)
+enddef
+
+# This function either visual selection or the current WORD and wraps it on an
+# empty link: myWord123 -> [myWord123][]
+#
+# Will delete `` wrappers, but keep others: () [] {}...
+export def ConvertToLink(mode: string)
+    var save_reg = getreg('v')
+    var save_reg_type = getregtype('v')
+
+    if mode ==# 'v'
+        # VISUAL MODE
+        # Because we added <Esc> in the mapping, gv now reliably re-selects
+        # the exact visual block we just escaped from.
+        execute 'normal! gv"vy'
+        var text = getreg('v')
+
+        # Strip backticks and wrap the entire visual block
+        var stripped = substitute(text, '\v^`+|`+$', '', 'g')
+        setreg('v', $'[{stripped}][]', 'v')
+
+        # Paste over the entire visual block
+        execute 'normal! gv"vp'
+
+    elseif mode ==# 'n'
+        # NORMAL MODE
+        var cursor_char = matchstr(getline('.'), '\%' .. col('.') .. 'c.')
+
+        if cursor_char =~ '^\s*$'
+            echo "Cursor is on whitespace. Please place it directly on a word."
+            return
+        endif
+
+        var text = expand('<cWORD>')
+        var stripped = substitute(text, '\v^`+|`+$', '', 'g')
+        setreg('v', $'[{stripped}][]', 'v')
+
+        execute 'normal! viW"vp'
+    endif
+
+    # Cleanup
+    setreg('v', save_reg, save_reg_type)
+enddef
+
+
 # ── Info ──────────────────────────────────────────────────────────────────────
 
 # Static table used both for display and as the authoritative list of levels.
@@ -554,14 +833,23 @@ export def Disable()
     # (e.g. called on an un-setup buffer).
     silent! execute 'nunmap <buffer> <C-p>'
     silent! execute 'nunmap <buffer> <C-n>'
+
     silent! execute 'nunmap <buffer> <C-o>'
     silent! execute 'nunmap <buffer> <C-i>'
+
     silent! execute 'nunmap <buffer> <leader>s'
     silent! execute 'nunmap <buffer> <leader>a'
     silent! execute 'nunmap <buffer> <leader>D'
-    silent! execute 'nunmap <buffer> <leader>R'
-    silent! execute 'nunmap <buffer> <leader>i'
     silent! execute 'nunmap <buffer> <leader>z'
+    silent! execute 'nunmap <buffer> <leader>R'
+
+    silent! execute 'nunmap <buffer> <leader>L'
+    silent! execute 'nunmap <buffer> <leader>l'
+
+    silent! execute 'nunmap <buffer> <leader>I'
+    silent! execute 'nunmap <buffer> <leader>d'
+    silent! execute 'nunmap <buffer> <leader>D'
+
     # These are only present when focus mode was active at disable time.
     silent! execute 'nunmap <buffer> k'
     silent! execute 'nunmap <buffer> j'
@@ -569,9 +857,12 @@ export def Disable()
     # -buffer is required to delete buffer-local commands; without it
     # delcommand would look for (and fail to find) a global command.
     silent! execute 'delcommand -buffer SlidevGoToSlideNum'
+    silent! execute 'delcommand -buffer SlidevRunDev'
     silent! execute 'delcommand -buffer SlidevRefresh'
     silent! execute 'delcommand -buffer SlidevFocus'
     silent! execute 'delcommand -buffer SlidevDisable'
+    silent! execute 'delcommand -buffer SlidevDigestLinks'
+    silent! execute 'delcommand -buffer SlidevConvertToLink'
 
     # Remove ghost-text annotations that prop_add() left on the separator lines.
     var buf = bufnr('%')
@@ -611,20 +902,35 @@ export def Setup()
     nnoremap <buffer> <C-o> <ScriptCmd>HandleJumpFocus(v:count1, "\<C-o>")<CR>
     nnoremap <buffer> <C-i> <ScriptCmd>HandleJumpFocus(v:count1, "\<C-i>")<CR>
 
-    # Generic utils
+    ## Function call binds
     nnoremap <buffer> <leader>s :SlidevGoToSlideNum<Space>
     nnoremap <buffer> <leader>a <ScriptCmd>AddSlide()<CR>
     nnoremap <buffer> <leader>D <ScriptCmd>DeleteSlide()<CR>
-    nnoremap <buffer> <leader>R <ScriptCmd>RunDev()<CR>
-    nnoremap <buffer> <leader>i <ScriptCmd>Info()<CR>
     nnoremap <buffer> <leader>z <ScriptCmd>FocusSlide()<CR>
+    nnoremap <buffer> <leader>R <ScriptCmd>RunDev()<CR>
+    # Links
+    nnoremap <buffer> <leader>L <ScriptCmd>DigestLinks()<CR>
+    nnoremap <buffer> <leader>l <ScriptCmd>ConvertToLink('n')<CR>
+    vnoremap <buffer> <leader>l <Esc><ScriptCmd>ConvertToLink('v')<CR>
+
+    ## Functionless extra conveniences
+    # Spawn a link with a custom icon
+    xnoremap <buffer> <leader>I i[<mdi-open-in-new class="w-0.8rem"/>][]<Esc>
+    # Spawn multiline HTML comment
+    nnoremap <buffer> <leader>d do<!--<CR>--><Esc>k
+    # Wrap current visual selection in multiline HTML comment
+    xnoremap <buffer> <leader>d dO<!--<CR><CR>--><Esc>kP
+
 
     # command! bodies are not inside this script's scope, so the autoload
     # prefix slidev# is required to reach the exported functions.
     command! -buffer -nargs=1 SlidevGoToSlideNum call slidev#GoToSlide(<args>)
+    command! -buffer SlidevRunDev call slidev#RunDev()
     command! -buffer SlidevRefresh call slidev#UpdateGhostText()
     command! -buffer SlidevFocus call slidev#FocusSlide()
     command! -buffer SlidevDisable call slidev#Disable()
+    command! -buffer SlidevDigestLinks call slidev#DigestLinks()
+    command! -buffer SlidevConvertToLink call slidev#ConvertToLink('n')
 
     b:slidev_active = true
 
