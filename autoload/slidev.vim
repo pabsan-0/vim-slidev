@@ -280,7 +280,7 @@ export def GoToSlide(num: number)
     # Add current take-off location to the jump list
     normal! m`
 
-    if get(b:, 'slidev_focus') == false
+    if get(b:, 'slidev_focus', false) == false
         # slides[] is 0-based; slide numbers shown to the user are 1-based.
         cursor(slides[num - 1], 1)
     else
