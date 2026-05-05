@@ -387,6 +387,8 @@ enddef
 
 # ── Link digesting ────────────────────────────────────────────────────────────
 
+# This function will parse all links in a slide in order, then place them at
+# the bottom on a reference paragraph.
 export def DigestLinks()
     var saved_view = winsaveview()
 
@@ -619,6 +621,49 @@ export def DigestLinks()
     winrestview(saved_view)
 enddef
 
+# This function either visual selection or the current WORD and wraps it on an
+# empty link: myWord123 -> [myWord123][]
+#
+# Will delete `` wrappers, but keep others: () [] {}...
+export def ConvertToLink(mode: string)
+    var save_reg = getreg('v')
+    var save_reg_type = getregtype('v')
+
+    if mode ==# 'v'
+        # VISUAL MODE
+        # Because we added <Esc> in the mapping, gv now reliably re-selects
+        # the exact visual block we just escaped from.
+        execute 'normal! gv"vy'
+        var text = getreg('v')
+
+        # Strip backticks and wrap the entire visual block
+        var stripped = substitute(text, '\v^`+|`+$', '', 'g')
+        setreg('v', $'[{stripped}][]', 'v')
+
+        # Paste over the entire visual block
+        execute 'normal! gv"vp'
+
+    elseif mode ==# 'n'
+        # NORMAL MODE
+        var cursor_char = matchstr(getline('.'), '\%' .. col('.') .. 'c.')
+
+        if cursor_char =~ '^\s*$'
+            echo "Cursor is on whitespace. Please place it directly on a word."
+            return
+        endif
+
+        var text = expand('<cWORD>')
+        var stripped = substitute(text, '\v^`+|`+$', '', 'g')
+        setreg('v', $'[{stripped}][]', 'v')
+
+        execute 'normal! viW"vp'
+    endif
+
+    # Cleanup
+    setreg('v', save_reg, save_reg_type)
+enddef
+
+
 # ── Info ──────────────────────────────────────────────────────────────────────
 
 # Static table used both for display and as the authoritative list of levels.
@@ -788,15 +833,23 @@ export def Disable()
     # (e.g. called on an un-setup buffer).
     silent! execute 'nunmap <buffer> <C-p>'
     silent! execute 'nunmap <buffer> <C-n>'
+
     silent! execute 'nunmap <buffer> <C-o>'
     silent! execute 'nunmap <buffer> <C-i>'
+
     silent! execute 'nunmap <buffer> <leader>s'
     silent! execute 'nunmap <buffer> <leader>a'
     silent! execute 'nunmap <buffer> <leader>D'
-    silent! execute 'nunmap <buffer> <leader>R'
-    silent! execute 'nunmap <buffer> <leader>i'
     silent! execute 'nunmap <buffer> <leader>z'
+    silent! execute 'nunmap <buffer> <leader>R'
+
     silent! execute 'nunmap <buffer> <leader>L'
+    silent! execute 'nunmap <buffer> <leader>l'
+
+    silent! execute 'nunmap <buffer> <leader>I'
+    silent! execute 'nunmap <buffer> <leader>d'
+    silent! execute 'nunmap <buffer> <leader>D'
+
     # These are only present when focus mode was active at disable time.
     silent! execute 'nunmap <buffer> k'
     silent! execute 'nunmap <buffer> j'
@@ -804,10 +857,12 @@ export def Disable()
     # -buffer is required to delete buffer-local commands; without it
     # delcommand would look for (and fail to find) a global command.
     silent! execute 'delcommand -buffer SlidevGoToSlideNum'
+    silent! execute 'delcommand -buffer RunDev'
     silent! execute 'delcommand -buffer SlidevRefresh'
     silent! execute 'delcommand -buffer SlidevFocus'
     silent! execute 'delcommand -buffer SlidevDisable'
     silent! execute 'delcommand -buffer SlidevDigestLinks'
+    silent! execute 'delcommand -buffer SlidevConvertToLink'
 
     # Remove ghost-text annotations that prop_add() left on the separator lines.
     var buf = bufnr('%')
@@ -847,22 +902,35 @@ export def Setup()
     nnoremap <buffer> <C-o> <ScriptCmd>HandleJumpFocus(v:count1, "\<C-o>")<CR>
     nnoremap <buffer> <C-i> <ScriptCmd>HandleJumpFocus(v:count1, "\<C-i>")<CR>
 
-    # Generic utils
+    ## Function call binds
     nnoremap <buffer> <leader>s :SlidevGoToSlideNum<Space>
     nnoremap <buffer> <leader>a <ScriptCmd>AddSlide()<CR>
     nnoremap <buffer> <leader>D <ScriptCmd>DeleteSlide()<CR>
-    nnoremap <buffer> <leader>R <ScriptCmd>RunDev()<CR>
-    nnoremap <buffer> <leader>i <ScriptCmd>Info()<CR>
     nnoremap <buffer> <leader>z <ScriptCmd>FocusSlide()<CR>
+    nnoremap <buffer> <leader>R <ScriptCmd>RunDev()<CR>
+    # Links
     nnoremap <buffer> <leader>L <ScriptCmd>DigestLinks()<CR>
+    nnoremap <buffer> <leader>l <ScriptCmd>ConvertToLink('n')<CR>
+    vnoremap <buffer> <leader>l <Esc><ScriptCmd>ConvertToLink('v')<CR>
+
+    ## Functionless extra conveniences
+    # Spawn a link with a custom icon
+    xnoremap <buffer> <leader>I i[<mdi-open-in-new class="w-0.8rem"/>][]<Esc>
+    # Spawn multiline HTML comment
+    nnoremap <buffer> <leader>d do<!--<CR>--><Esc>k
+    # Spawn multiline HTML comment, stay on top
+    xnoremap <buffer> <leader>d dO<!--<CR><CR>--><Esc>kP
+
 
     # command! bodies are not inside this script's scope, so the autoload
     # prefix slidev# is required to reach the exported functions.
     command! -buffer -nargs=1 SlidevGoToSlideNum call slidev#GoToSlide(<args>)
+    command! -buffer RunDev call slidev#RunDev()
     command! -buffer SlidevRefresh call slidev#UpdateGhostText()
     command! -buffer SlidevFocus call slidev#FocusSlide()
     command! -buffer SlidevDisable call slidev#Disable()
     command! -buffer SlidevDigestLinks call slidev#DigestLinks()
+    command! -buffer SlidevConvertToLink call slidev#ConvertToLink()
 
     b:slidev_active = true
 
