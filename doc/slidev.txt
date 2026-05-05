@@ -67,6 +67,18 @@ All mappings are buffer-local and only active in detected Slidev files.
     <leader>z   Toggle single-slide focus view (:SlidevFocus)
     <leader>L   Normalize and consolidate all markdown links in the current
                 slide (:SlidevDigestLinks)
+    <leader>l   (normal)  Wrap the WORD under the cursor as an empty reference
+                link: `word` → `[word][]`.  Backtick wrappers are stripped
+                before wrapping.  (:SlidevConvertToLink)
+    <leader>l   (visual)  Same as above but applied to the visual selection.
+    <leader>I   (visual)  Wrap the visual selection as a reference link whose
+                reference text is an inline MDI open-in-new icon:
+                `text` → `[text][<mdi-open-in-new class="w-0.8rem"/>][]`
+    <leader>d   (normal)  Insert a two-line HTML comment block (presenter note)
+                after the current line: `<!--` on one line, `-->` on the next,
+                with the cursor left on the opening line.
+    <leader>d   (visual)  Wrap the visual selection inside an HTML comment
+                block, keeping the selection on a new line between the tags.
 
 In focus mode two extra buffer-local mappings are active:
 
@@ -114,11 +126,21 @@ The following commands are buffer-local and only available after detection
 *:SlidevDigestLinks*
     Parse all markdown links in the current slide, renumber them
     sequentially from 1, and append a consolidated reference block at the
-    end of the slide.  Both reference-style links (`[text][N]`) and inline
-    links (`[text](url)`) are detected; inline links are converted to
-    numbered reference style.  Any reference whose old number had no
-    matching definition gets `about:blank` as a placeholder URL.  If no
-    links are found the slide is left unchanged.
+    end of the slide (above any trailing HTML presenter-note comment).
+    Detected link forms:
+      - `[text][N]`   reference-style (renumbered, duplicates deduplicated)
+      - `[text][]`    empty reference (assigned `about:blank`)
+      - `[text](url)` inline (converted to numbered reference style)
+      - `[text]()`    empty inline (assigned `about:blank`)
+    Links inside HTML comments (`<!-- ... -->`, including multiline) are
+    ignored.  Any reference whose old number had no matching definition gets
+    `about:blank` as a placeholder URL.  If no links are found the slide is
+    left unchanged.
+
+*:SlidevConvertToLink*
+    Wrap the WORD under the cursor as an empty placeholder reference link.
+    Equivalent to `<leader>l` in normal mode.  The result is a `[word][]`
+    token ready to be filled in with |:SlidevDigestLinks|.
 
 ==============================================================================
 vim:ft=help:tw=78:

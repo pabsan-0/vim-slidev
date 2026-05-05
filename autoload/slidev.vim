@@ -930,7 +930,7 @@ export def Setup()
     command! -buffer SlidevFocus call slidev#FocusSlide()
     command! -buffer SlidevDisable call slidev#Disable()
     command! -buffer SlidevDigestLinks call slidev#DigestLinks()
-    command! -buffer SlidevConvertToLink call slidev#ConvertToLink()
+    command! -buffer SlidevConvertToLink call slidev#ConvertToLink('n')
 
     b:slidev_active = true
 
