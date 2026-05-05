@@ -2,13 +2,18 @@
 
 A Vim9 plugin for editing [Slidev](https://sli.dev) presentations.
 
-## Features
+Slidev is a neat tool for crafting slides, yet its `.md` files usually end up being ~1k lines of mixed markdown, code blocks and glue HTML, making them really hard to grasp. This plugin makes for easier navigation and tweaking with a bit of ghost text plus a few, non-intrusive, mappings.
 
-- **Auto-detection** with configurable strictness
+
+<img style="height: 320px" src="./.doc/demo.gif"/>
+
+## Features 
+
+- **Filetype auto-detection** based on context with configurable strictness (package.json)
 - **Navigation** with `<C-n>` / `<C-p>` (count-aware)
-- **Ghost text** showing `⟨ slide N / total ⟩` on each separator line
-- **Slide editing** — add and delete slides
-- **Dev server** — launch `pnpm dev` in a terminal split
+- **Ghost text** showing separators and slide numbers
+- **Slide editing** — add and delete slides, tweak links
+<!-- - **Dev server** — launch `pnpm dev` in a terminal split -->
 
 ## Installation
 
