@@ -22,7 +22,7 @@ Or manually, clone into `~/.vim/pack/plugins/start/vim-slidev`.
 ## Configuration
 
 ```vim
-" Detection strictness (1–4, default 3)
+" Slidev filetype detection strictness (1–4, default 3) 
 g:slidev_strictness = 3
 
 " Filenames never treated as Slidev files (case-insensitive basenames)
@@ -39,9 +39,11 @@ See `:help slidev` for full documentation.
 | `<leader>s` | `:SlidevGoToSlideNum` prompt |
 | `<leader>a` | Add slide after current |
 | `<leader>D` | Delete current slide |
-| `<leader>R` | Run `pnpm dev %` in a terminal split |
-| `<leader>i` | Print slide info (`:SlidevInfo`) |
 | `<leader>z` | Toggle single-slide focus view (`:SlidevFocus`) |
+| `<leader>R` | Run `pnpm dev %` in a terminal split |
+| `<leader>l` | Wrap the current WORD or visual selection into a link `md` tag |
+| `<leader>L` | Move all links in the slide to the bottom |
+| `<leader>d` | Wrap selection in a multiline HTML comment |
 
 ## Commands
 
@@ -57,7 +59,10 @@ See `:help slidev` for full documentation.
 | Command | Action |
 |---|---|
 | `:SlidevGoToSlideNum {n}` | Jump to slide n |
-| `:SlidevRefresh` | Refresh ghost text |
+| `:SlidevRunDev` | Run development `slidev` server via `pnpm` |
+| `:SlidevRefresh` | Refresh ghost text (Already wrapped on autocmd) |
 | `:SlidevFocus` | Toggle single-slide focus (folds other slides away) |
 | `:SlidevDisable` | Deactivate all Slidev features for the current buffer |
+| `:SlidevDigestLinks` | Move all links in the slide to the bottom |
+| `:SlidevConvertToLink` | Spawn empty, or wrap selection in multiline HTML comment |
 

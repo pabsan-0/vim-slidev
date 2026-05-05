@@ -857,7 +857,7 @@ export def Disable()
     # -buffer is required to delete buffer-local commands; without it
     # delcommand would look for (and fail to find) a global command.
     silent! execute 'delcommand -buffer SlidevGoToSlideNum'
-    silent! execute 'delcommand -buffer RunDev'
+    silent! execute 'delcommand -buffer SlidevRunDev'
     silent! execute 'delcommand -buffer SlidevRefresh'
     silent! execute 'delcommand -buffer SlidevFocus'
     silent! execute 'delcommand -buffer SlidevDisable'
@@ -918,14 +918,14 @@ export def Setup()
     xnoremap <buffer> <leader>I i[<mdi-open-in-new class="w-0.8rem"/>][]<Esc>
     # Spawn multiline HTML comment
     nnoremap <buffer> <leader>d do<!--<CR>--><Esc>k
-    # Spawn multiline HTML comment, stay on top
+    # Wrap current visual selection in multiline HTML comment
     xnoremap <buffer> <leader>d dO<!--<CR><CR>--><Esc>kP
 
 
     # command! bodies are not inside this script's scope, so the autoload
     # prefix slidev# is required to reach the exported functions.
     command! -buffer -nargs=1 SlidevGoToSlideNum call slidev#GoToSlide(<args>)
-    command! -buffer RunDev call slidev#RunDev()
+    command! -buffer SlidevRunDev call slidev#RunDev()
     command! -buffer SlidevRefresh call slidev#UpdateGhostText()
     command! -buffer SlidevFocus call slidev#FocusSlide()
     command! -buffer SlidevDisable call slidev#Disable()
